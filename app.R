@@ -3,22 +3,29 @@ library(DT)
 library(shinydashboard)
 library(shinycssloaders)
 library(dplyr)
+library(rtracklayer)
+library(GenomicRanges)
+library(grDevices)
 
-options(shiny.maxRequestSize=200*1024^2) 
+
+
+options(shiny.maxRequestSize=1000*1024^2) 
 
 ui <- dashboardPage(
   header = dashboardHeader(title = "profileplyr"),
   sidebar = dashboardSidebar(
     sidebarMenu(
-    menuItem("Input data", tabName = "input_data", icon = icon("upload")),
-    menuItem("Explore Ranges", tabName = "explore_ranges", icon = icon("plane")),
-    menuItem("Manupulate Ranges", tabName = "manipulate_ranges", icon = icon("cut")),
-    menuItem("Visualize", tabName = "visualize", icon = icon("eye")))),
+      menuItem("Input data", tabName = "input_data", icon = icon("upload")),
+      menuItem("Explore Ranges", tabName = "explore_ranges", icon = icon("plane")),
+      menuItem("Manupulate Ranges", tabName = "manipulate_ranges", icon = icon("cut")),
+      menuItem("Visualize", tabName = "visualize", icon = icon("eye")))
+    #sidebarMenuOutput("other_tabs"))
+    ),
   
   body = dashboardBody(
     
     tabItems(
-      tabItem("input_data",
+      tabItem("input_data", class = "active",
               box(width = 8,
                 htmlOutput("generate_headline"),
                   radioButtons(inputId = "inputType",
@@ -41,10 +48,10 @@ ui <- dashboardPage(
                                  inline = TRUE),
                     textInput(inputId = "signalFiles",
                               label = "Enter paths to bigwig or bam files (each separated by a comma):",
-                              value = "/Users/douglasbarrows 1/Desktop/R_functions/profileplyr/inst/extdata/Sorted_Liver_day_12_1_filtered.bam"),
+                              value = ""),
                     textInput(inputId = "testRanges",
                               label = "Enter paths to bed files (each separated by a comma):",
-                              value = "/Users/douglasbarrows 1/Desktop/R_functions/profileplyr/inst/extdata/newranges.bed"),
+                              value = ""),
                     actionButton(inputId = "go_bam_bigwig",
                                  label = "Generate profileplyr object"),
                   # option to download
@@ -55,11 +62,10 @@ ui <- dashboardPage(
                   # ###################################################
                   conditionalPanel(
                     condition = "input.inputType == 'deepTools'",
-                    textInput(inputId = "deepTools_mat_path",
-                              label = "Enter path to deeptools matrix (output of computeMartix):",
-                              value = "/Users/douglasbarrows 1/Desktop/R_functions/profileplyr/inst/extdata/example_deepTools_MAT"),
-                    actionButton(inputId = "go_deepTools",
-                                 label = "Generate profileplyr object"),
+                    fileInput(inputId = "deepTools_mat_upload",
+                              label = "Upload deeptools matrix (output of computeMartix):"),
+                    # actionButton(inputId = "go_deepTools",
+                    #              label = "Generate profileplyr object"),
                   
                   # the option to download the profileplyr object
                     uiOutput("download_deepTools")),
@@ -73,148 +79,151 @@ ui <- dashboardPage(
                               label = "Upload profileplyr object")),
                   
                   htmlOutput("object_headline"),
-                  verbatimTextOutput("proplyr_print")
+                  verbatimTextOutput("proplyr_print"),
+                uiOutput("download_object_button"),
+                uiOutput("clear_object"),
+                uiOutput("clear_warning")
               )
       ),
       tabItem("explore_ranges",
+              uiOutput("explore_ranges_render")  
               
-              box(DT::dataTableOutput("rangeTable"), width = 12)
+              # box(DT::dataTableOutput("rangeTable"), width = 12)
+      
       ),
       tabItem("manipulate_ranges",
-              box(
-                checkboxGroupInput(
-                  'select', 'Select Functions:', 
-                  choices = c("change metadata column used for grouping" = "change_groups_in_use",
-                              "group by list of genes" = "groupby_genes_choice",
-                              "cluster ranges" = "cluster_choice",
-                              "ChIPseeker annotate" = "annotate_cs_choice",
-                              "GREAT gene annotation" = "annotate_great_choice")
-                ),
-                conditionalPanel(
-                  condition = "input.select.includes('change_groups_in_use')",
-                  uiOutput("columns_for_groups")
-                ),
-                
-                conditionalPanel(
-                  condition = "input.select.includes('groupby_genes_choice')",
-                  uiOutput("gene_list_instruct"),
-                  fileInput(inputId = "gene_list",
-                            label = "Upload one or more gene lists",
-                            multiple = TRUE,
-                            accept = c(".csv")),
-                  radioButtons(inputId = "include_nonoverlapping",
-                               label = "Do you want to include the ranges that do not overlap with your gene lists?",
-                               choices = c("no" = FALSE,
-                                           "yes" = TRUE),
-                               inline = TRUE),
-                  actionButton(inputId = "perform_groupby_genes",
-                               label = "Group the ranges by gene list")),
-                
-                conditionalPanel(
-                  condition = "input.select.includes('cluster_choice')",
-                  htmlOutput("cluster_title"),
-                  radioButtons(inputId = "cluster_method",
-                               label = "What clustering method to use:",
-                               choices = c("kmeans" = "kmeans",
-                                           "hierarchical clustering" = "hclust")),
-                  numericInput(inputId = "cluster_number", 
-                               label = "Number of clusters:",
-                               value = 1,
-                               min = 1,
-                               max = NA),
-                  actionButton(inputId = "perform_cluster",
-                               label = "Perform Clustering")),
-                
-                conditionalPanel(
-                  condition = "input.select.includes('annotate_cs_choice')",
-                  htmlOutput("annotate_cs_title"),
-                  selectInput(inputId = "cs_genome",
-                              label = "Select a genome:",
-                              choices = c("hg19", "hg38", "mm9", "mm10"),
-                              selected = c("hg19"),
-                              multiple = FALSE),
-                  checkboxGroupInput(inputId = "annotation_subset",
-                                     label = "Specific annotation types to use:",
-                                     choices = c("Promoter", "Exon", "Intron", "Downstream", "Distal Intergenic", "3p UTR", "5p UTR"),
-                                     selected = c("Promoter", "Exon", "Intron", "Downstream", "Distal Intergenic", "3p UTR", "5p UTR")),
-                  sliderInput(inputId = "tss_region",
-                              label = "Transcription Start Site Region: \n *TSS = 0",
-                              min = -5000,
-                              max = 5000,
-                              value = c(-3000, 3000),
-                              step = 100),
-                  actionButton(inputId = "perform_annotate_cs",
-                               label = "Perform annotation with ChIPseeker")),
-                
-                conditionalPanel(
-                  condition = "input.select.includes('annotate_great_choice')",
-                  htmlOutput("annotate_great_title"),
-                  selectInput(inputId = "great_species",
-                              label = "Select a genome:",
-                              choices = c("hg19", "mm10", "mm9", "danRer7"),
-                              selected = c("hg19"),
-                              multiple = FALSE),
-                  actionButton(inputId = "perform_annotate_great",
-                               label = "Perform gene annotation with GREAT"))
-                
-              )
-              
+              uiOutput("manipulate_render")
+              # box(width = 12,
+              # 
+              #     checkboxGroupInput(
+              #       'select', 'Select Functions:',
+              #       choices = c("cluster ranges" = "cluster_choice",
+              #                   "annotate ranges with genomic regions (promoters, exons, etc.) and closest gene with ChIPseeker" = "annotate_cs_choice",
+              #                   "annotate ranges with genes using GREAT" = "annotate_great_choice",
+              #                   "filter or group the ranges by lists of genes (NOTE: must annotate with ChIPseeker or GREAT first)" = "groupby_genes_choice")
+              #     ),
+              #     
+              #     
+              #     conditionalPanel(
+              #       condition = "input.select.includes('cluster_choice')",
+              #       htmlOutput("cluster_title"),
+              #       radioButtons(inputId = "cluster_method",
+              #                    label = "What clustering method to use:",
+              #                    choices = c("kmeans" = "kmeans",
+              #                                "hierarchical clustering" = "hclust")),
+              #       numericInput(inputId = "cluster_number",
+              #                    label = "Number of clusters:",
+              #                    value = 1,
+              #                    min = 1,
+              #                    max = NA),
+              #       actionButton(inputId = "perform_cluster",
+              #                    label = "Perform Clustering")),
+              #     
+              #     conditionalPanel(
+              #       condition = "input.select.includes('annotate_cs_choice')",
+              #       htmlOutput("annotate_cs_title"),
+              #       selectInput(inputId = "cs_genome",
+              #                   label = "Select a genome:",
+              #                   choices = c("hg19", "hg38", "mm9", "mm10"),
+              #                   selected = c("hg19"),
+              #                   multiple = FALSE),
+              #       checkboxGroupInput(inputId = "annotation_subset",
+              #                          label = "Specific annotation types to use:",
+              #                          choices = c("Promoter", "Exon", "Intron", "Downstream", "Distal Intergenic", "3p UTR", "5p UTR"),
+              #                          selected = c("Promoter", "Exon", "Intron", "Downstream", "Distal Intergenic", "3p UTR", "5p UTR")),
+              #       sliderInput(inputId = "tss_region",
+              #                   label = "Transcription Start Site Region: \n *TSS = 0",
+              #                   min = -5000,
+              #                   max = 5000,
+              #                   value = c(-3000, 3000),
+              #                   step = 100),
+              #       actionButton(inputId = "perform_annotate_cs",
+              #                    label = "Perform annotation with ChIPseeker")),
+              #     
+              #     conditionalPanel(
+              #       condition = "input.select.includes('annotate_great_choice')",
+              #       htmlOutput("annotate_great_title"),
+              #       selectInput(inputId = "great_species",
+              #                   label = "Select a genome:",
+              #                   choices = c("hg19", "mm10", "mm9", "danRer7"),
+              #                   selected = c("hg19"),
+              #                   multiple = FALSE),
+              #       actionButton(inputId = "perform_annotate_great",
+              #                    label = "Perform gene annotation with GREAT")),
+              #     
+              #     conditionalPanel(
+              #       condition = "input.select.includes('groupby_genes_choice')",
+              #       uiOutput("gene_list_instruct"),
+              #       fileInput(inputId = "gene_list",
+              #                 label = "Upload one or more gene lists",
+              #                 multiple = TRUE,
+              #                 accept = c(".csv")),
+              #       radioButtons(inputId = "include_nonoverlapping",
+              #                    label = "Do you want to include the ranges that do not overlap with your gene lists?",
+              #                    choices = c("no" = FALSE,
+              #                                "yes" = TRUE),
+              #                    inline = TRUE),
+              #       actionButton(inputId = "perform_groupby_genes",
+              #                    label = "Group the ranges by gene list"))
+              #     
+              # )
+              # 
       ),
       tabItem("visualize",
-              box(width = 4,
-                radioButtons(inputId = "extra_annotation_columns_query",
-                             label = "Do you want to add any extra heatmaps from a range metadata column?",
-                             choices = c("yes" = "yes",
-                                         "no" = "no"),
-                             selected = "no",
-                             inline = TRUE),
-                conditionalPanel(
-                  condition = "input.extra_annotation_columns_query == 'yes'",
-                  uiOutput("extra_annotation_columns")
-                ),
-                radioButtons(inputId = "include_group_annotation",
-                             label = "Include group annotation:",
-                             choices = c("TRUE" = TRUE,
-                                         "FALSE" = FALSE),
-                             inline = TRUE),
-                htmlOutput("sample_names_title"),
-                checkboxInput(inputId = "sample_names_query",
-                              label = "Click to change heatmap sample names"),
-                conditionalPanel(
-                  condition = "input.sample_names_query != 0",
-                  uiOutput("sample_names")
-                ),
-                htmlOutput("matrices_color_title"),
-                checkboxInput(inputId = "matrices_color_query",
-                              label = "Click to change heatmap colors"),
-                conditionalPanel(
-                  condition = "input.matrices_color_query != 0",
-                  uiOutput("matrices_color")
-                ),
-                radioButtons(inputId = "ylim_query",
-                             label = "Y-axis limit setting:",
-                             choices = c("Common Max (Default)" = "common_max",
-                                         "Inferred spearately" = "inferred", # since this is NULL, had toruble buidling in, can essentially do this with custom, so leave out for now
-                                         "Custom" = "custom"),
-                             selected = "common_max",
-                             inline = FALSE),
-                conditionalPanel(
-                  condition = "input.ylim_query == 'custom'",
-                  uiOutput("ylim")
-                )
-                
-                
-                
-              ),
-             
-              box(width = 8,                         
-                actionButton(inputId = "MakeEnrichedHeatmap_direct_file",
-                             label = "Make range heatmap"),
-                plotOutput("EnrichedHeatmap_direct_file") %>% withSpinner(type = 4),
-                uiOutput("download_heatmap_button")
-                
-                
-              )
+              uiOutput("visualize_render_box1"),
+              uiOutput("visualize_render_box2")
+              # box(width = 4,
+              #     uiOutput("columns_for_groups"),
+              #     radioButtons(inputId = "include_group_annotation",
+              #                  label = "Include group annotation on left side of heatmaps:",
+              #                  choices = c("include" = TRUE,
+              #                              "don't include" = FALSE),
+              #                  inline = TRUE),
+              #     htmlOutput("extra_annotation_title"),
+              #   htmlOutput("extra_annotation_inputbox_label"),
+              #   uiOutput("extra_annotation_columns"),
+              #   htmlOutput("sample_names_title"),
+              #   checkboxInput(inputId = "sample_names_query",
+              #                 label = "Click to change heatmap sample names"),
+              #   conditionalPanel(
+              #     condition = "input.sample_names_query != 0",
+              #     uiOutput("sample_names")
+              #   ),
+              #   htmlOutput("matrices_color_title"),
+              #   checkboxInput(inputId = "matrices_color_query",
+              #                 label = "Click to change heatmap colors"),
+              #   conditionalPanel(
+              #     condition = "input.matrices_color_query != 0",
+              #     uiOutput("matrices_color")
+              #   ),
+              #   radioButtons(inputId = "ylim_query",
+              #                label = "Y-axis limit setting:",
+              #                choices = c("Common Max (Default)" = "common_max",
+              #                            "Inferred spearately" = "inferred", # since this is NULL, had toruble buidling in, can essentially do this with custom, so leave out for now
+              #                            "Custom" = "custom"),
+              #                selected = "common_max",
+              #                inline = FALSE),
+              #   conditionalPanel(
+              #     condition = "input.ylim_query == 'custom'",
+              #     uiOutput("ylim")
+              #   )
+              # 
+              # 
+              # 
+              # ),
+              # 
+              # box(width = 8,
+              #   actionButton(inputId = "MakeEnrichedHeatmap",
+              #                label = "Generate and download range heatmap"),
+              #   textInput(inputId = "heatmap_path",
+              #             label = "Enter path for heatmap location after download:",
+              #             value = paste0(getwd(), "/EnrichedHeatmap", "_",Sys.time(),".pdf")),
+              #   plotOutput("EnrichedHeatmap") %>% withSpinner(type = 4)
+              #   #uiOutput("download_heatmap_button")
+              #   
+              # 
+              # 
+              # )
       )
     )
   )
@@ -227,7 +236,203 @@ server <- function(input, output, session) {
   library(profileplyr)
   library(dplyr)
   library(shinyjs)
+ 
+  output$explore_ranges_render <- renderUI({
+    if(is(rv$proplyr, "profileplyr")) {
+      box(DT::dataTableOutput("rangeTable"), width = 12)
+    } else {
+      htmlOutput("no_object_message_explore")
+    }
+  })
+  
+  output$manipulate_render <- renderUI({
+    if(is(rv$proplyr, "profileplyr")) {
+      box(width = 12,
+          
+          checkboxGroupInput(
+            'select', 'Select Functions:',
+            choices = c("cluster ranges" = "cluster_choice",
+                        "annotate ranges with genomic regions (promoters, exons, etc.) and closest gene with ChIPseeker" = "annotate_cs_choice",
+                        "annotate ranges with genes using GREAT" = "annotate_great_choice",
+                        "filter or group the ranges based on whether they overlap with other sets of ranges (i.e. bed files)" = "groupby_granges_choice",
+                        "filter or group the ranges by lists of genes (NOTE: must annotate with ChIPseeker or GREAT first)" = "groupby_genes_choice")
+          ),
+          
+          
+          conditionalPanel(
+            condition = "input.select.includes('cluster_choice')",
+            htmlOutput("cluster_title"),
+            radioButtons(inputId = "cluster_method",
+                         label = "What clustering method to use:",
+                         choices = c("kmeans" = "kmeans",
+                                     "hierarchical clustering" = "hclust")),
+            numericInput(inputId = "cluster_number",
+                         label = "Number of clusters:",
+                         value = 1,
+                         min = 1,
+                         max = NA),
+            actionButton(inputId = "perform_cluster",
+                         label = "Perform Clustering")),
+          
+          conditionalPanel(
+            condition = "input.select.includes('annotate_cs_choice')",
+            htmlOutput("annotate_cs_title"),
+            selectInput(inputId = "cs_genome",
+                        label = "Select a genome:",
+                        choices = c("hg19", "hg38", "mm9", "mm10"),
+                        selected = c("hg19"),
+                        multiple = FALSE),
+            checkboxGroupInput(inputId = "annotation_subset",
+                               label = "Specific annotation types to use:",
+                               choices = c("Promoter", "Exon", "Intron", "Downstream", "Distal Intergenic", "3p UTR", "5p UTR"),
+                               selected = c("Promoter", "Exon", "Intron", "Downstream", "Distal Intergenic", "3p UTR", "5p UTR")),
+            sliderInput(inputId = "tss_region",
+                        label = "Transcription Start Site Region: \n *TSS = 0",
+                        min = -5000,
+                        max = 5000,
+                        value = c(-3000, 3000),
+                        step = 100),
+            actionButton(inputId = "perform_annotate_cs",
+                         label = "Perform annotation with ChIPseeker")),
+          
+          conditionalPanel(
+            condition = "input.select.includes('annotate_great_choice')",
+            htmlOutput("annotate_great_title"),
+            selectInput(inputId = "great_species",
+                        label = "Select a genome:",
+                        choices = c("hg19", "mm10", "mm9", "danRer7"),
+                        selected = c("hg19"),
+                        multiple = FALSE),
+            actionButton(inputId = "perform_annotate_great",
+                         label = "Perform gene annotation with GREAT")),
+          
+          conditionalPanel(
+            condition = "input.select.includes('groupby_granges_choice')",
+            fileInput(inputId = "granges",
+                      label = "Upload one or more bed files",
+                      multiple = TRUE),
+            conditionalPanel(
+              condition = "output.bed_file_uploaded",
+                radioButtons(inputId = "include_nonoverlapping_granges",
+                         label = "Do you want to include the ranges that do not overlap with these bed files in the heatmap?",
+                         choices = c("no" = FALSE,
+                                     "yes" = TRUE),
+                         inline = TRUE),
+            uiOutput("granges_names"),
+            actionButton(inputId = "perform_groupby_granges",
+                         label = "Group the ranges by bed file overlap"))),
+          
+          conditionalPanel(
+            condition = "input.select.includes('groupby_genes_choice')",
+            uiOutput("gene_list_instruct"),
+            fileInput(inputId = "gene_list",
+                      label = "Upload one or more gene lists",
+                      multiple = TRUE,
+                      accept = c(".csv")),
+            conditionalPanel(
+              condition = "output.gene_list_uploaded",
+            radioButtons(inputId = "include_nonoverlapping_gene_list",
+                         label = "Do you want to include the ranges that do not overlap with your gene lists in the heatmap?",
+                         choices = c("no" = FALSE,
+                                     "yes" = TRUE),
+                         inline = TRUE),
+            uiOutput("gene_list_names"),
+            actionButton(inputId = "perform_groupby_genes",
+                         label = "Group the ranges by gene lists"))
+          )   
+      )
+      
+    } else {
+      htmlOutput("no_object_message_manipulate")
+    }
+  })
+  
+  output$visualize_render_box1 <- renderUI({
+    if(is(rv$proplyr, "profileplyr")) {
+      box(width = 4,
+          uiOutput("columns_for_groups"),
+          radioButtons(inputId = "include_group_annotation",
+                       label = "Include group annotation on left side of heatmaps:",
+                       choices = c("include" = TRUE,
+                                   "don't include" = FALSE),
+                       inline = TRUE),
+          htmlOutput("extra_annotation_title"),
+          htmlOutput("extra_annotation_inputbox_label"),
+          uiOutput("extra_annotation_columns"),
+          htmlOutput("sample_names_title"),
+          checkboxInput(inputId = "sample_names_query",
+                        label = "Click to change heatmap sample names"),
+          conditionalPanel(
+            condition = "input.sample_names_query != 0",
+            uiOutput("sample_names")
+          ),
+          htmlOutput("matrices_color_title"),
+          checkboxInput(inputId = "matrices_color_query",
+                        label = "Click to change heatmap colors"),
+          conditionalPanel(
+            condition = "input.matrices_color_query != 0",
+            uiOutput("matrices_color")
+          ),
+          radioButtons(inputId = "ylim_query",
+                       label = "Y-axis limit setting:",
+                       choices = c("Common Max (Default)" = "common_max",
+                                   "Inferred spearately" = "inferred", # since this is NULL, had toruble buidling in, can essentially do this with custom, so leave out for now
+                                   "Custom" = "custom"),
+                       selected = "common_max",
+                       inline = FALSE),
+          conditionalPanel(
+            condition = "input.ylim_query == 'custom'",
+            uiOutput("ylim")
+          )
+          
+          
+          
+      )
+    }
+  })
+      
+  output$visualize_render_box2 <- renderUI({
+    if(is(rv$proplyr, "profileplyr")) {
+      box(width = 8,
+          radioButtons(inputId = "local_vs_internet",
+                       label = "Are you deploying this app from a local machine or from the internet?",
+                       choices = c("local", "internet"),
+                       selected = "local"),
 
+          conditionalPanel(
+            condition = "input.local_vs_internet == 'local'",
+            #uiOutput("download_heatmap_button")
+            actionButton(inputId = "MakeEnrichedHeatmap_local",
+                         label = "Generate range heatmap and download"),
+            textInput(inputId = "heatmap_path_local",
+                      label = "Enter path for heatmap location if downloading from local launch:",
+                      value = paste0(getwd(), "/EnrichedHeatmaplocal", "_",Sys.time(),".pdf")),
+            plotOutput("EnrichedHeatmap_local")
+
+
+          ),
+          conditionalPanel(
+            condition = "input.local_vs_internet == 'internet'",
+            actionButton(inputId = "MakeEnrichedHeatmap",
+                         label = "Generate range heatmap only"),
+            # textInput(inputId = "heatmap_path",
+            #           label = "Enter path for heatmap location if downloading from local launch:",
+            #           value = paste0(getwd(), "/EnrichedHeatmap", "_",Sys.time(),".pdf")),
+            plotOutput("EnrichedHeatmap"), #%>% withSpinner(type = 4)
+            downloadButton(outputId = "download_heatmap",
+                           label = "Download range heatmap")
+          )
+      )
+    } else {
+      htmlOutput("no_object_message_visualize")
+    }
+  })
+  
+  output$no_object_message_explore <- renderText("<b> No profileplyr object currently loaded <b>")
+  output$no_object_message_manipulate <- renderText("<b> No profileplyr object currently loaded <b>")
+  output$no_object_message_visualize <- renderText("<b> No profileplyr object currently loaded <b>")
+  output$extra_annotation_title <- renderText("<b> Add extra annotation heatmaps: <b><br><br>")
+  output$extra_annotation_inputbox_label <- renderText("Name of column used for extra annotation column:")
   output$sample_names_title <- renderText("<b> Heatmap Sample Names: <b>")
   output$matrices_color_title <- renderText("<b> Heatmap Color Schemes: <b>")
   output$cluster_title <- renderText("<br><br><b> Clustering of Ranges: <b> <br><br>")
@@ -238,9 +443,6 @@ server <- function(input, output, session) {
   output$object_headline <- renderText("<br><b> Current profileplyr object for analysis: <b> <br><br>")
   output$generate_headline <- renderText("<b> Generate, upload, or refresh profileplyr object: <b> <br><br>")
   
-  observeEvent(input$resetAll, {
-    reset("inputType")
-  })
   
   rv <- reactiveValues(proplyr = "No profileplyr object has been uploaded/generated")
   
@@ -265,10 +467,11 @@ server <- function(input, output, session) {
   
 
   # read in from deeptools
-  from_deepTools <- observeEvent(input$go_deepTools, {
+  from_deepTools <- observeEvent(input$deepTools_mat_upload, {
     withProgress(message = 'Calculation in progress',
                  value = 0.5, {
-      rv$proplyr <- import_deepToolsMat(input$deepTools_mat_path)
+      file <- input$deepTools_mat_upload
+      rv$proplyr <- import_deepToolsMat(file$datapath)
     })
   })
   
@@ -282,21 +485,73 @@ server <- function(input, output, session) {
   
   # print object to screen if through direct upload
   output$proplyr_print <- renderPrint({
- 
+
       rv$proplyr
 
   })
  
+  
+  # this reactive expression will reset the tabs whenever the profileplyr object is not in the appropirate slot of 'rv'
+  # this allows us to remove these tabs when 
+  # show_other_tabs <- reactive({
+  #   if(is(rv$proplyr, "profileplyr")){
+  #     sidebarMenu(
+  #       menuItem("Explore Ranges", tabName = "explore_ranges", icon = icon("plane")),
+  #       menuItem("Manupulate Ranges", tabName = "manipulate_ranges", icon = icon("cut")),
+  #       menuItem("Visualize", tabName = "visualize", icon = icon("eye"))
+  #     )} else {
+  #       sidebarMenu()
+  #     }
+  # })
+  # 
+  # 
+  # 
+  # # render other tables once the object is present
+  # output$other_tabs <- renderMenu({
+  #   show_other_tabs()
+  # })
+  # 
+  output$download_object_button <- renderUI({
+    if(is(rv$proplyr, "profileplyr")) {
+      downloadButton("download_object", "Download profileplyr object")
+    }
+  })
 
+  output$download_object <- downloadHandler(
+      filename = function() {
+        paste("proplyrObject", "_",Sys.time(),".RData",sep="")
+      },
+      content = function(file) {
+        saveRDS(rv$proplyr, file)
+      }
+  )
+
+  output$clear_object <- renderUI({
+    if(is(rv$proplyr, "profileplyr")){
+      actionButton(inputId = "clear_object_button",
+                   label = "Clear current profileplyr object")
+    }
+  })
+
+  output$clear_warning <- renderText({
+    if(is(rv$proplyr, "profileplyr")){
+      "Warning: make sure you download object before clearing if you want to keep this object for further analysis! It will be much faster to load the RData file as opposed to starting from BAM/bigwig files in the future. Not necessary to download if starting from RData file already."
+    }
+  })
+
+  observeEvent(input$clear_object_button, {
+    rv$proplyr <- "No profileplyr object has been uploaded/generated"
+    rv$mcol <- NULL
+    rv$heatmap <- NULL
+    rv$heatmap_local <- NULL
+  })
+  
+  
   # make interactive data table in 'Explore Ranges' tab for direct profileplyr option
   update_mcol <- eventReactive(rv$proplyr, {
     rv$mcol <- rowRanges(rv$proplyr) %>%
       as.data.frame()
   })
-  
-  # ranges_direct_file <- eventReactive(input$update_range_table, {
-  #   rv$mcol
-  # })
   
   output$rangeTable <- DT::renderDataTable({
     DT::datatable(update_mcol(), 
@@ -307,13 +562,13 @@ server <- function(input, output, session) {
   # set parameters for generateEnrichedHeatmap()
   output$extra_annotation_columns <- renderUI({
     selectInput(inputId = "extra_annotation_columns_input",
-              label = "Name of column used for extra annotation column:",
-              choices = colnames(mcols(rv$proplyr)),
-              multiple = TRUE,
-              selectize = TRUE)
+                label = "",
+                choices = colnames(mcols(rv$proplyr)),
+                multiple = TRUE,
+                selectize = TRUE)
   })
   extra_annotation_columns <- reactive({
-    ifelse(input$extra_annotation_columns_query %in% "no", list(NULL), list(input$extra_annotation_columns_input))
+    ifelse(is.null(input$extra_annotation_columns_input), list(NULL), list(input$extra_annotation_columns_input))
   })
   
   include_group_annotation <- reactive({
@@ -426,7 +681,7 @@ server <- function(input, output, session) {
     })
   
   # when the button to make the enrichedheatmap is pressed, the ranges from the sliders will be taken into account
-  ylim_new <- eventReactive(input$MakeEnrichedHeatmap_direct_file, {
+  ylim_new <- eventReactive(input$MakeEnrichedHeatmap, {
     if(input$ylim_query == "custom")
            { numSamples <- length(assays(rv$proplyr))
            temp <- list()
@@ -441,40 +696,111 @@ server <- function(input, output, session) {
 
   })
   
-  # make heatmap in 'Visualize' tab for direct file upload
-  makeHeatmap_direct_file <- eventReactive(input$MakeEnrichedHeatmap_direct_file, {
-    rv$heatmap <- generateEnrichedHeatmap(object = rv$proplyr, 
-                            extra_annotation_columns = unlist(extra_annotation_columns()),
-                            include_group_annotation = include_group_annotation(),
-                            sample_names = unlist(sample_names_new()),
-                            ylim = ylim_new(),
-                            matrices_color = matrices_color_new())
-                          
-  })
-  
-  output$EnrichedHeatmap_direct_file <- renderPlot({
-    rv$heatmap
-  })
-  
-  output$download_heatmap_button <- renderUI({
-    if(!is.null(makeHeatmap_direct_file())) {
-      downloadButton("download_heatmap", "Download Heatmap")
+  # when the button to make the enrichedheatmap is pressed, the ranges from the sliders will be taken into account
+  ylim_new_local <- eventReactive(input$MakeEnrichedHeatmap_local, {
+    if(input$ylim_query == "custom")
+    { numSamples <- length(assays(rv$proplyr))
+    temp <- list()
+    for(i in seq(numSamples)){
+      temp[[i]] <- input[[paste0("ylim_list", i)]]
     }
+    temp }
+
+    else if (input$ylim_query == "common_max") {
+      "common_max"
+    } # will default to NULL (inferred) if it gets past these if statements
+
   })
   
   options(shiny.usecairo=TRUE)
+  #make heatmap in 'Visualize' tab for direct file upload
+  makeHeatmap <- observeEvent(input$MakeEnrichedHeatmap, {
+    withProgress(message = 'Calculation in progress',
+                 value = 0.5, {
+                   # file = input$heatmap_path
+                   # cairo_pdf(filename = file)
+                   rv$heatmap <- generateEnrichedHeatmap(object = rv$proplyr,
+                                                         extra_annotation_columns = unlist(extra_annotation_columns()),
+                                                         include_group_annotation = include_group_annotation(),
+                                                         sample_names = unlist(sample_names_new()),
+                                                         ylim = ylim_new(),
+                                                         matrices_color = matrices_color_new()
+                   )
+                   # dev.off()
+                 })
+  })
+
+  output$EnrichedHeatmap <- renderPlot(
+    rv$heatmap
+  )
   
+ 
+
+  makeHeatmap_local <- observeEvent(input$MakeEnrichedHeatmap_local, {
+    withProgress(message = 'Calculation in progress',
+                 value = 0.5, {
+                   file = input$heatmap_path_local
+                   cairo_pdf(filename = file)
+                   rv$heatmap_local <- generateEnrichedHeatmap(object = rv$proplyr,
+                                                         extra_annotation_columns = unlist(extra_annotation_columns()),
+                                                         include_group_annotation = include_group_annotation(),
+                                                         sample_names = unlist(sample_names_new()),
+                                                         ylim = ylim_new_local(),
+                                                         matrices_color = matrices_color_new()
+                   )
+                   dev.off()
+                 })
+  })
+
+
+
+  output$EnrichedHeatmap_local <- renderPlot(
+    rv$heatmap_local
+  )
+
   output$download_heatmap <- downloadHandler(
     filename = function() {
-      paste("EnrichedHeatmap", "_",Sys.time(),".pdf",sep="")
-    },
-    content = function(file) {
-        cairo_pdf(filename = file)
-        print(makeHeatmap_direct_file())
-        dev.off()
+          paste("heatmap", "_",Sys.time(),".pdf",sep="")
+        },
+        content = function(file) {
+          # temp_file <- file.path(tempdir(), "heatmap_test_ddd.pdf")
+          # file.copy("heatmap_test_ddd.pdf", temp_file, overwrite = TRUE)
 
-    }
-  )
+          #pdf(file)
+          cairo_pdf(filename = file)
+          rv$heatmap <- generateEnrichedHeatmap(object = rv$proplyr,
+                                        extra_annotation_columns = unlist(extra_annotation_columns()),
+                                        include_group_annotation = include_group_annotation(),
+                                        sample_names = unlist(sample_names_new()),
+                                        ylim = ylim_new(),
+                                        matrices_color = matrices_color_new()
+          )
+
+          dev.off()
+        },
+        contentType = "application/pdf"
+    )
+
+
+  # output$download_heatmap_button <- renderUI({
+  #   if(!is.null(makeHeatmap())) {
+  #     downloadButton("download_heatmap", "Download Heatmap")
+  #   }
+  # })
+  #
+
+  #
+  # output$download_heatmap <- downloadHandler(
+  #   filename = function() {
+  #     paste("EnrichedHeatmap", "_",Sys.time(),".pdf",sep="")
+  #   },
+  #   content = function(file) {
+  #       cairo_pdf(filename = file)
+  #       print(makeHeatmap())
+  #       dev.off()
+  #
+  #   }
+  # )
  
   ############
   # range manipulation
@@ -483,9 +809,10 @@ server <- function(input, output, session) {
   ######change grouping
   
   output$columns_for_groups <- renderUI(
-    textInput(inputId = "columns_for_groups_dropdown",
+    selectInput(inputId = "columns_for_groups_dropdown",
                 label = "Enter the name of the column from the range matadata to be used for grouping:",
-                value = params(rv$proplyr)$rowGroupsInUse)
+                choices = colnames(mcols(rv$proplyr)),
+                selected = params(rv$proplyr)$rowGroupsInUse)
   )
   
   change_grouping <- observeEvent(input$columns_for_groups_dropdown, {
@@ -493,8 +820,65 @@ server <- function(input, output, session) {
                           group = input$columns_for_groups_dropdown)
   })
   
+  
+  ##### groupBy GRanges
+  
+  output$bed_file_uploaded <- reactive({
+    return(!is.null(input$granges))
+  })
+  outputOptions(output, "bed_file_uploaded", suspendWhenHidden = FALSE)
+  
+  make_GRanges <- observeEvent(input$granges, {
+    rv$granges <- lapply(input$granges$datapath, 
+                       import.bed)
+    
+    rv$granges <- GRangesList(rv$granges)
+    
+  })
+
+    
+  include_nonoverlapping_granges <- reactive({
+    include_nonoverlapping_granges = input$include_nonoverlapping_granges
+  })
+  
+  
+  # produce the text boxes for user to input  granges names
+  output$granges_names <- renderUI({
+    numBedFiles <- length(input$granges$name)
+    lapply(1:numBedFiles, function(i) {
+      textInput(inputId = paste0("granges_names_list", i),
+                label = paste0("Bed File #", i, " name"),
+                value = input$granges$name[[i]])
+    })
+  })
+  
+  # create list of names user enters, or sets to default names if user unclicks the box
+  granges_names_new <- reactive({
+    numBedFiles <- length(input$granges$name)
+    temp <- list()
+      for(i in seq(numBedFiles)){
+        temp[[i]] <- input[[paste0("granges_names_list", i)]]
+      }
+    temp
+  })
+  
+  groupby_granges_go <- observeEvent(input$perform_groupby_granges, {
+    withProgress(message = 'Calculation in progress',
+                 value = 0.5, {
+                   rv$proplyr <- groupBy(rv$proplyr,
+                                         group = rv$granges,
+                                         GRanges_names = unlist(granges_names_new()),
+                                         include_nonoverlapping = include_nonoverlapping_granges())
+                 })
+    
+  }, ignoreInit = TRUE)
+  
   ##### groupBy gene list
 
+  output$gene_list_uploaded <- reactive({
+    return(!is.null(input$gene_list))
+  })
+  outputOptions(output, "gene_list_uploaded", suspendWhenHidden = FALSE)
   
   make_gene_list <- observeEvent(input$gene_list, {
     rv$genes <- lapply(input$gene_list$datapath, 
@@ -509,16 +893,38 @@ server <- function(input, output, session) {
     }
   })
   
-  include_nonoverlapping <- reactive({
-    include_nonoverlapping = input$include_nonoverlapping
+  include_nonoverlapping_gene_list <- reactive({
+    include_nonoverlapping_gene_list = input$include_nonoverlapping_gene_list
   })
   
+  # produce the text boxes for user to input  granges names
+  output$gene_list_names <- renderUI({
+    numGeneLists <- length(input$gene_list$name)
+    lapply(1:numGeneLists, function(i) {
+      textInput(inputId = paste0("gene_list_names_list", i),
+                label = paste0("Gene List #", i, " name"),
+                value = input$gene_list$name[[i]])
+    })
+  })
+  
+  # create list of names user enters, or sets to default names if user unclicks the box
+  gene_list_names_new <- reactive({
+    numGeneLists <- length(input$gene_list$name)
+    temp <- list()
+    for(i in seq(numGeneLists)){
+      temp[[i]] <- input[[paste0("gene_list_names_list", i)]]
+    }
+    unlist(temp)
+  })
+  
+
   groupby_gene_list_go <- observeEvent(input$perform_groupby_genes, {
     withProgress(message = 'Calculation in progress',
                  value = 0.5, {
+                   names(rv$genes) <- gene_list_names_new()
                    rv$proplyr <- groupBy(rv$proplyr,
                                          group = rv$genes,
-                                         include_nonoverlapping = include_nonoverlapping())
+                                         include_nonoverlapping = include_nonoverlapping_gene_list())
                  })
     
   }, ignoreInit = TRUE)
