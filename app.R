@@ -16,8 +16,9 @@ ui <- dashboardPage(
   sidebar = dashboardSidebar(
     sidebarMenu(
       menuItem("Input data", tabName = "input_data", icon = icon("upload")),
-      menuItem("Explore Ranges", tabName = "explore_ranges", icon = icon("plane")),
+      menuItem("Select/Annotate Samples", tabName = "select_samples", icon = icon("hand-pointer")),
       menuItem("Manupulate Ranges", tabName = "manipulate_ranges", icon = icon("cut")),
+      menuItem("Explore Ranges", tabName = "explore_ranges", icon = icon("plane")),
       menuItem("Visualize", tabName = "visualize", icon = icon("eye")))
     #sidebarMenuOutput("other_tabs"))
     ),
@@ -82,7 +83,10 @@ ui <- dashboardPage(
                   verbatimTextOutput("proplyr_print"),
                 uiOutput("download_object_button"),
                 uiOutput("clear_object"),
-                uiOutput("clear_warning")
+                uiOutput("clear_warning"),
+                br(),
+                br(),
+                uiOutput("sample_table_input")
               )
       ),
       tabItem("explore_ranges",
@@ -91,7 +95,19 @@ ui <- dashboardPage(
               # box(DT::dataTableOutput("rangeTable"), width = 12)
       
       ),
+      tabItem("select_samples",
+              htmlOutput("select_samples_message"),
+              uiOutput("select_samples_box"),
+              uiOutput("new_sample_column_box"),
+              #uiOutput("new_sample_column_render"),
+              uiOutput("select_samples_action_render"),
+              br(),
+              br(),
+              uiOutput("selected_samples_render_table")
+              
+      ),
       tabItem("manipulate_ranges",
+              uiOutput("selected_samples_table_render_manipulate"),
               uiOutput("manipulate_render")
               # box(width = 12,
               # 
@@ -170,6 +186,7 @@ ui <- dashboardPage(
               # 
       ),
       tabItem("visualize",
+              uiOutput("selected_samples_table_render_visualize"),
               uiOutput("visualize_render_box1"),
               uiOutput("visualize_render_box2")
               # box(width = 4,
@@ -245,8 +262,85 @@ server <- function(input, output, session) {
     }
   })
   
+  output$select_samples_box <- renderUI({
+    if(is(rv$proplyr, "profileplyr")) {
+      box(width = 12,
+          title = "Original samples in object at time of upload, before any selection. Click on the rows you want to select.",
+          DT::dataTableOutput("select_sample_table"), 
+          actionButton("select_samples_action" ,"Select samples", icon("check"),
+                       class = "btn btn-primary")
+      )
+      
+    } else {
+      htmlOutput("no_object_message_select")
+    }
+  })
+  
+
+  
+  output$new_sample_column_box <- renderUI({
+    if(is(rv$proplyr, "profileplyr")) {
+      box(width = 6,
+          checkboxInput(inputId = "new_sample_column_query",
+                        label = "Click to add a column to sample metadata",
+                        value = 0),
+          conditionalPanel(
+            condition = "input.new_sample_column_query != 0",
+            uiOutput("column_name"),
+            uiOutput("new_sample_column_render"),
+            uiOutput("add_sample_column_button")
+          )
+      )
+    }
+  })
+  
+  output$column_name <- renderUI({
+    textInput(inputId = "column_name_input",
+              label = "Enter the name of the new column:")
+  })
+  
+  output$new_sample_column_render <- renderUI({
+    numSamples <- length(assays(rv$proplyr_original))
+    lapply(1:numSamples, function(i) {
+      textInput(inputId = paste0("new_sample_column_list", i),
+                label = rownames(sampleData(rv$proplyr_original))[i])
+    })
+  })
+  
+  
+  output$add_sample_column_button <- renderUI({
+    actionButton(inputId = "add_sample_column_yes",
+                 label = "Add Column to sample data")
+  })
+  
+  
+  output$selected_samples_render_table <- renderUI({
+    if(is(rv$proplyr, "profileplyr")) {
+      box("Selected Samples",
+          DT::dataTableOutput("selected_samples_table"), 
+          title="Selected samples (these will be the samples used for any manipulation or visualization)",
+          solidHeader=TRUE,
+          width = 12)
+    } 
+  })
+  
+
+  
+  output$select_samples_message <- renderText("<b> After selecting the rows of the samples you want to use for this analysis from the table below, click the 'Select samples' button and samples shown in the bottom table are those that will be used for any subsequent analysis. To revert back to the original samples, just click the 'Select samples' button with no rows highlighted in the table above. <b>")
+  
+  output$selected_samples_table_render_manipulate <- renderUI({
+    if(is(rv$proplyr, "profileplyr")) {
+      box("Selected Samples Manipulate",
+          DT::dataTableOutput("selected_samples_table_manipulate"), 
+          title="Selected samples (these are the current samples that will be used for any range manipulation)",
+          solidHeader=TRUE,
+          width = 12)
+    } 
+  })
+  
   output$manipulate_render <- renderUI({
     if(is(rv$proplyr, "profileplyr")) {
+      
       box(width = 12,
           
           checkboxGroupInput(
@@ -347,12 +441,22 @@ server <- function(input, output, session) {
     }
   })
   
+  output$selected_samples_table_render_visualize <- renderUI({
+    if(is(rv$proplyr, "profileplyr")) {
+      box("Selected Samples Visualize",
+          DT::dataTableOutput("selected_samples_table_visualize"), 
+          title="Selected samples (these are the current samples that will be used for visualization)",
+          solidHeader=TRUE,
+          width = 12)
+    } 
+  })
+  
   output$visualize_render_box1 <- renderUI({
     if(is(rv$proplyr, "profileplyr")) {
       box(width = 4,
           uiOutput("columns_for_groups"),
           radioButtons(inputId = "include_group_annotation",
-                       label = "Include group annotation on left side of heatmaps:",
+                       label = "Do you want to include group annotation on left side of heatmaps?",
                        choices = c("include" = TRUE,
                                    "don't include" = FALSE),
                        inline = TRUE),
@@ -373,6 +477,11 @@ server <- function(input, output, session) {
             condition = "input.matrices_color_query != 0",
             uiOutput("matrices_color")
           ),
+          radioButtons(inputId = "all_color_scales_equal",
+                       label = "Should the colors for the range heatmap all have a common scale, or should they be scaled individually?",
+                       choices = c("same scale" = TRUE,
+                                   "individual scales" = FALSE),
+                       inline = TRUE),
           radioButtons(inputId = "ylim_query",
                        label = "Y-axis limit setting:",
                        choices = c("Common Max (Default)" = "common_max",
@@ -431,6 +540,7 @@ server <- function(input, output, session) {
   output$no_object_message_explore <- renderText("<b> No profileplyr object currently loaded <b>")
   output$no_object_message_manipulate <- renderText("<b> No profileplyr object currently loaded <b>")
   output$no_object_message_visualize <- renderText("<b> No profileplyr object currently loaded <b>")
+  output$no_object_message_select <- renderText("<b> No profileplyr object currently loaded <b>")
   output$extra_annotation_title <- renderText("<b> Add extra annotation heatmaps: <b><br><br>")
   output$extra_annotation_inputbox_label <- renderText("Name of column used for extra annotation column:")
   output$sample_names_title <- renderText("<b> Heatmap Sample Names: <b>")
@@ -451,18 +561,18 @@ server <- function(input, output, session) {
   from_bam_bigwig_bed <- observeEvent(input$go_bam_bigwig, {
     withProgress(message = 'Calculation in progress',
                  value = 0.5, {
-
-      signalFiles <- strsplit(input$signalFiles, split = ",") %>%
-        unlist() %>%
-        trimws()
-      testRanges <- strsplit(input$testRanges, split = ",") %>%
-        unlist() %>%
-        trimws()
-      rv$proplyr <- BamBigwig_to_chipProfile(signalFiles = signalFiles,
-                                             testRanges = testRanges,
-                                             format = input$format) %>%
-        as_profileplyr()
-    })
+                   
+                   signalFiles <- strsplit(input$signalFiles, split = ",") %>%
+                     unlist() %>%
+                     trimws()
+                   testRanges <- strsplit(input$testRanges, split = ",") %>%
+                     unlist() %>%
+                     trimws()
+                   rv$proplyr <- rv$proplyr_original <- BamBigwig_to_chipProfile(signalFiles = signalFiles,
+                                                                                 testRanges = testRanges,
+                                                                                 format = input$format) %>%
+                     as_profileplyr()
+                 })
   })
   
 
@@ -471,7 +581,7 @@ server <- function(input, output, session) {
     withProgress(message = 'Calculation in progress',
                  value = 0.5, {
       file <- input$deepTools_mat_upload
-      rv$proplyr <- import_deepToolsMat(file$datapath)
+      rv$proplyr <- rv$proplyr_original <- import_deepToolsMat(file$datapath)
     })
   })
   
@@ -479,7 +589,7 @@ server <- function(input, output, session) {
   ## read in from profileplyr object upload
   from_direct_file <- observeEvent(input$profileplyr_upload, {
       file <- input$profileplyr_upload
-      rv$proplyr <- readRDS(file$datapath)
+      rv$proplyr <- rv$proplyr_original <- readRDS(file$datapath)
 
   })
   
@@ -490,27 +600,6 @@ server <- function(input, output, session) {
 
   })
  
-  
-  # this reactive expression will reset the tabs whenever the profileplyr object is not in the appropirate slot of 'rv'
-  # this allows us to remove these tabs when 
-  # show_other_tabs <- reactive({
-  #   if(is(rv$proplyr, "profileplyr")){
-  #     sidebarMenu(
-  #       menuItem("Explore Ranges", tabName = "explore_ranges", icon = icon("plane")),
-  #       menuItem("Manupulate Ranges", tabName = "manipulate_ranges", icon = icon("cut")),
-  #       menuItem("Visualize", tabName = "visualize", icon = icon("eye"))
-  #     )} else {
-  #       sidebarMenu()
-  #     }
-  # })
-  # 
-  # 
-  # 
-  # # render other tables once the object is present
-  # output$other_tabs <- renderMenu({
-  #   show_other_tabs()
-  # })
-  # 
   output$download_object_button <- renderUI({
     if(is(rv$proplyr, "profileplyr")) {
       downloadButton("download_object", "Download profileplyr object")
@@ -533,6 +622,7 @@ server <- function(input, output, session) {
     }
   })
 
+
   output$clear_warning <- renderText({
     if(is(rv$proplyr, "profileplyr")){
       "Warning: make sure you download object before clearing if you want to keep this object for further analysis! It will be much faster to load the RData file as opposed to starting from BAM/bigwig files in the future. Not necessary to download if starting from RData file already."
@@ -541,11 +631,97 @@ server <- function(input, output, session) {
 
   observeEvent(input$clear_object_button, {
     rv$proplyr <- "No profileplyr object has been uploaded/generated"
+    rv$proplyr_original <- NULL
     rv$mcol <- NULL
     rv$heatmap <- NULL
     rv$heatmap_local <- NULL
+    rv$row_select_index <- NULL
   })
   
+  output$sample_table_input <- renderUI({
+    if(is(rv$proplyr, "profileplyr")) {
+      box(DT::dataTableOutput("sample_table"), 
+          title = "Samples from imported data:",
+          width = 12)
+    } 
+  })
+  
+  
+  # make interactive data table for sampleData (original input)
+  original_sampleData <- observeEvent(rv$proplyr_original, {
+    rv$sampleData_original <- sampleData(rv$proplyr_original) %>% 
+      as.data.frame() %>%
+      select(sample_labels)
+  })
+  
+  new_sample_column <- reactive({
+    numSamples <- length(assays(rv$proplyr_original))
+    temp <- list()
+    if (input$new_sample_column_query != 0){
+      for(i in seq(numSamples)){
+        temp[[i]] <- input[[paste0("new_sample_column_list", i)]]
+      }
+    }
+    unlist(temp)
+  })
+  
+  # create list of entries for new column 
+  add_to_sampleData <- observeEvent(input$add_sample_column_yes, {
+    temp <- input$column_name_input
+    sampleData(rv$proplyr_original)[,temp] <- new_sample_column()
+  })
+  
+
+  # update_sampleData <- eventReactive(rv$proplyr, {
+  #   rv$sampleData <- sampleData(rv$proplyr) %>%
+  #     as.data.frame()
+  # })
+  
+  output$sample_table <- DT::renderDataTable({
+    DT::datatable(rv$sampleData_original, 
+                  options = list(pageLength = 25,
+                                 scrollX = TRUE))
+  })
+
+  output$select_sample_table <- DT::renderDataTable({
+    DT::datatable(rv$sampleData_original, 
+                  options = list(pageLength = 25,
+                                 scrollX = TRUE))
+  })
+  
+  row_index_update <- observeEvent(input$select_samples_action, {
+    rv$row_select_index <- input$select_sample_table_rows_selected
+    if(is.null(rv$row_select_index)){
+      rv$row_select_index <- seq(nrow(sampleData(rv$proplyr_original)))
+    }
+  })
+ 
+  update_proplyr_after_index <- observeEvent(rv$row_select_index, {
+    rv$proplyr <- rv$proplyr_original[, ,rv$row_select_index]
+  })
+  
+  
+  updated_sample_table <- eventReactive(rv$proplyr, {
+    upated_sampleData <- sampleData(rv$proplyr) %>% 
+      as.data.frame() %>%
+      select(sample_labels)
+    DT::datatable(upated_sampleData, 
+                  options = list(pageLength = 25,
+                                 scrollX = TRUE),
+                  selection = "none")  
+  })
+  
+  output$selected_samples_table <- DT::renderDataTable({
+    updated_sample_table()
+    })
+
+  output$selected_samples_table_manipulate <- DT::renderDataTable({
+    updated_sample_table() 
+  })
+  
+  output$selected_samples_table_visualize <- DT::renderDataTable({
+    updated_sample_table() 
+  })
   
   # make interactive data table in 'Explore Ranges' tab for direct profileplyr option
   update_mcol <- eventReactive(rv$proplyr, {
@@ -574,6 +750,10 @@ server <- function(input, output, session) {
   include_group_annotation <- reactive({
     input$include_group_annotation
   })
+  
+  all_color_scales_equal <- reactive({
+    input$all_color_scales_equal
+  })
 
   # produce the text boxes for user to input sample names
   output$sample_names <- renderUI({
@@ -600,6 +780,11 @@ server <- function(input, output, session) {
     }
     temp
   })
+  
+  observeEvent(input$MakeEnrichedHeatmap_local, {
+    rownames(sampleData(rv$proplyr)) <- sample_names_new()
+  })
+  
   
   # produce the text boxes for user to input colors
   output$matrices_color <- renderUI({
@@ -711,6 +896,7 @@ server <- function(input, output, session) {
     } # will default to NULL (inferred) if it gets past these if statements
 
   })
+
   
   options(shiny.usecairo=TRUE)
   #make heatmap in 'Visualize' tab for direct file upload
@@ -724,7 +910,8 @@ server <- function(input, output, session) {
                                                          include_group_annotation = include_group_annotation(),
                                                          sample_names = unlist(sample_names_new()),
                                                          ylim = ylim_new(),
-                                                         matrices_color = matrices_color_new()
+                                                         matrices_color = matrices_color_new(),
+                                                         all_color_scales_equal = all_color_scales_equal()
                    )
                    # dev.off()
                  })
@@ -746,7 +933,8 @@ server <- function(input, output, session) {
                                                          include_group_annotation = include_group_annotation(),
                                                          sample_names = unlist(sample_names_new()),
                                                          ylim = ylim_new_local(),
-                                                         matrices_color = matrices_color_new()
+                                                         matrices_color = matrices_color_new(),
+                                                         all_color_scales_equal = all_color_scales_equal()
                    )
                    dev.off()
                  })
@@ -810,7 +998,7 @@ server <- function(input, output, session) {
   
   output$columns_for_groups <- renderUI(
     selectInput(inputId = "columns_for_groups_dropdown",
-                label = "Enter the name of the column from the range matadata to be used for grouping:",
+                label = "Enter the name of the column from the range metadata to be used for grouping:",
                 choices = colnames(mcols(rv$proplyr)),
                 selected = params(rv$proplyr)$rowGroupsInUse)
   )
