@@ -81,7 +81,7 @@ ui <- dashboardPage(
                   
                   htmlOutput("object_headline"),
                   verbatimTextOutput("proplyr_print"),
-                uiOutput("download_object_button"),
+                uiOutput("download_object_button_inputTab"),
                 uiOutput("clear_object"),
                 uiOutput("clear_warning"),
                 br(),
@@ -90,12 +90,16 @@ ui <- dashboardPage(
               )
       ),
       tabItem("explore_ranges",
+              uiOutput("download_object_button_exploreTab"),
+              br(),
               uiOutput("explore_ranges_render")  
               
               # box(DT::dataTableOutput("rangeTable"), width = 12)
       
       ),
       tabItem("select_samples",
+              uiOutput("download_object_button_selectTab"),
+              br(),
               htmlOutput("select_samples_message"),
               uiOutput("select_samples_box"),
               uiOutput("new_sample_column_box"),
@@ -107,6 +111,8 @@ ui <- dashboardPage(
               
       ),
       tabItem("manipulate_ranges",
+              uiOutput("download_object_button_manipulateTab"),
+              br(),
               uiOutput("selected_samples_table_render_manipulate"),
               uiOutput("manipulate_render")
               # box(width = 12,
@@ -186,6 +192,8 @@ ui <- dashboardPage(
               # 
       ),
       tabItem("visualize",
+              uiOutput("download_object_button_visualizeTab"),
+              br(),
               uiOutput("selected_samples_table_render_visualize"),
               uiOutput("visualize_render_box1"),
               uiOutput("visualize_render_box2")
@@ -300,10 +308,10 @@ server <- function(input, output, session) {
   })
   
   output$new_sample_column_render <- renderUI({
-    numSamples <- length(assays(rv$proplyr_original))
+    numSamples <- length(assays(rv$proplyr))
     lapply(1:numSamples, function(i) {
       textInput(inputId = paste0("new_sample_column_list", i),
-                label = rownames(sampleData(rv$proplyr_original))[i])
+                label = rownames(sampleData(rv$proplyr))[i])
     })
   })
   
@@ -323,9 +331,7 @@ server <- function(input, output, session) {
           width = 12)
     } 
   })
-  
 
-  
   output$select_samples_message <- renderText("<b> After selecting the rows of the samples you want to use for this analysis from the table below, click the 'Select samples' button and samples shown in the bottom table are those that will be used for any subsequent analysis. To revert back to the original samples, just click the 'Select samples' button with no rows highlighted in the table above. <b>")
   
   output$selected_samples_table_render_manipulate <- renderUI({
@@ -445,6 +451,7 @@ server <- function(input, output, session) {
     if(is(rv$proplyr, "profileplyr")) {
       box("Selected Samples Visualize",
           DT::dataTableOutput("selected_samples_table_visualize"), 
+          #downloadButton("download_object_visualizeTab", "Download current profileplyr object"),
           title="Selected samples (these are the current samples that will be used for visualization)",
           solidHeader=TRUE,
           width = 12)
@@ -600,13 +607,38 @@ server <- function(input, output, session) {
 
   })
  
-  output$download_object_button <- renderUI({
+  output$download_object_button_inputTab <- renderUI({
     if(is(rv$proplyr, "profileplyr")) {
-      downloadButton("download_object", "Download profileplyr object")
+      downloadButton("download_object_inputTab", "Download current profileplyr object")
     }
   })
 
-  output$download_object <- downloadHandler(
+  output$download_object_button_selectTab <- renderUI({
+    if(is(rv$proplyr, "profileplyr")) {
+      downloadButton("download_object_selectTab", "Download current profileplyr object")
+    }
+  })
+  
+  output$download_object_button_manipulateTab <- renderUI({
+    if(is(rv$proplyr, "profileplyr")) {
+      downloadButton("download_object_manipulateTab", "Download current profileplyr object")
+    }
+  })
+  
+  output$download_object_button_exploreTab <- renderUI({
+    if(is(rv$proplyr, "profileplyr")) {
+      downloadButton("download_object_exploreTab", "Download current profileplyr object")
+    }
+  })
+  
+  
+  output$download_object_button_visualizeTab <- renderUI({
+    if(is(rv$proplyr, "profileplyr")) {
+      downloadButton("download_object_visualizeTab", "Download current profileplyr object")
+    }
+  })
+  
+  output$download_object_inputTab <- downloadHandler(
       filename = function() {
         paste("proplyrObject", "_",Sys.time(),".RData",sep="")
       },
@@ -615,6 +647,41 @@ server <- function(input, output, session) {
       }
   )
 
+  output$download_object_selectTab <- downloadHandler(
+    filename = function() {
+      paste("proplyrObject", "_",Sys.time(),".RData",sep="")
+    },
+    content = function(file) {
+      saveRDS(rv$proplyr, file)
+    }
+  )
+
+  output$download_object_manipulateTab <- downloadHandler(
+    filename = function() {
+      paste("proplyrObject", "_",Sys.time(),".RData",sep="")
+    },
+    content = function(file) {
+      saveRDS(rv$proplyr, file)
+    }
+  )
+  
+  output$download_object_exploreTab <- downloadHandler(
+    filename = function() {
+      paste("proplyrObject", "_",Sys.time(),".RData",sep="")
+    },
+    content = function(file) {
+      saveRDS(rv$proplyr, file)
+    }
+  )
+  
+  output$download_object_visualizeTab <- downloadHandler(
+    filename = function() {
+      paste("proplyrObject", "_",Sys.time(),".RData",sep="")
+    },
+    content = function(file) {
+      saveRDS(rv$proplyr, file)
+    }
+  )
   output$clear_object <- renderUI({
     if(is(rv$proplyr, "profileplyr")){
       actionButton(inputId = "clear_object_button",
@@ -654,28 +721,22 @@ server <- function(input, output, session) {
       select(sample_labels)
   })
   
-  new_sample_column <- reactive({
-    numSamples <- length(assays(rv$proplyr_original))
+
+
+  # create list of entries for new column 
+  add_to_sampleData <- observeEvent(input$add_sample_column_yes, {
+    numSamples <- length(assays(rv$proplyr))
     temp <- list()
     if (input$new_sample_column_query != 0){
       for(i in seq(numSamples)){
         temp[[i]] <- input[[paste0("new_sample_column_list", i)]]
       }
     }
-    unlist(temp)
+    new_sample_column <- unlist(temp)
+    column_name <- input$column_name_input
+    sampleData(rv$proplyr)[,column_name] <- new_sample_column
+    rv$sampleData_active_subset[,column_name] <- sampleData(rv$proplyr)[,column_name]
   })
-  
-  # create list of entries for new column 
-  add_to_sampleData <- observeEvent(input$add_sample_column_yes, {
-    temp <- input$column_name_input
-    sampleData(rv$proplyr_original)[,temp] <- new_sample_column()
-  })
-  
-
-  # update_sampleData <- eventReactive(rv$proplyr, {
-  #   rv$sampleData <- sampleData(rv$proplyr) %>%
-  #     as.data.frame()
-  # })
   
   output$sample_table <- DT::renderDataTable({
     DT::datatable(rv$sampleData_original, 
@@ -698,29 +759,30 @@ server <- function(input, output, session) {
  
   update_proplyr_after_index <- observeEvent(rv$row_select_index, {
     rv$proplyr <- rv$proplyr_original[, ,rv$row_select_index]
-  })
-  
-  
-  updated_sample_table <- eventReactive(rv$proplyr, {
-    upated_sampleData <- sampleData(rv$proplyr) %>% 
+    rv$sampleData_active_subset <- sampleData(rv$proplyr) %>% 
       as.data.frame() %>%
       select(sample_labels)
-    DT::datatable(upated_sampleData, 
+  })
+  
+  output$selected_samples_table <- DT::renderDataTable({
+    DT::datatable(rv$sampleData_active_subset, 
+                  options = list(pageLength = 25,
+                                 scrollX = TRUE),
+                  selection = "none") 
+    })
+
+  output$selected_samples_table_manipulate <- DT::renderDataTable({
+    DT::datatable(rv$sampleData_active_subset, 
                   options = list(pageLength = 25,
                                  scrollX = TRUE),
                   selection = "none")  
   })
   
-  output$selected_samples_table <- DT::renderDataTable({
-    updated_sample_table()
-    })
-
-  output$selected_samples_table_manipulate <- DT::renderDataTable({
-    updated_sample_table() 
-  })
-  
   output$selected_samples_table_visualize <- DT::renderDataTable({
-    updated_sample_table() 
+    DT::datatable(rv$sampleData_active_subset, 
+                  options = list(pageLength = 25,
+                                 scrollX = TRUE),
+                  selection = "none")  
   })
   
   # make interactive data table in 'Explore Ranges' tab for direct profileplyr option
