@@ -289,7 +289,7 @@ server <- function(input, output, session) {
   output$new_sample_column_box <- renderUI({
     if(is(rv$proplyr, "profileplyr")) {
       box(width = 6,
-          checkboxInput(inputId = "new_sample_column_query",
+          actionButton(inputId = "new_sample_column_query",
                         label = "Click to add a column to sample metadata",
                         value = 0),
           conditionalPanel(
@@ -460,7 +460,7 @@ server <- function(input, output, session) {
   
   output$visualize_render_box1 <- renderUI({
     if(is(rv$proplyr, "profileplyr")) {
-      box(width = 4,
+      box(width = 12,
           uiOutput("columns_for_groups"),
           radioButtons(inputId = "include_group_annotation",
                        label = "Do you want to include group annotation on left side of heatmaps?",
@@ -478,11 +478,20 @@ server <- function(input, output, session) {
             uiOutput("sample_names")
           ),
           htmlOutput("matrices_color_title"),
-          checkboxInput(inputId = "matrices_color_query",
-                        label = "Click to change heatmap colors"),
+          radioButtons(inputId = "individual_or_group_colors",
+                       label = "Do you want to specify colors for each individual heatmap, or color them by sample grouping (from 'Select/Anotate Samples' tab)?",
+                       choices = c("Color by individual heatmap (default)" = "individual",
+                                   "Color by sample groups" = "sample_groups"), 
+                       #selected = character(0)
+                       ),
           conditionalPanel(
-            condition = "input.matrices_color_query != 0",
-            uiOutput("matrices_color")
+            condition = "input.individual_or_group_colors == 'individual'",
+            uiOutput("matrices_color_individual")
+          ),
+          conditionalPanel(
+            condition = "input.individual_or_group_colors == 'sample_groups'",
+            uiOutput("sample_column_for_colors"),
+            uiOutput("user_group_colors")
           ),
           radioButtons(inputId = "all_color_scales_equal",
                        label = "Should the colors for the range heatmap all have a common scale, or should they be scaled individually?",
@@ -491,25 +500,26 @@ server <- function(input, output, session) {
                        inline = TRUE),
           radioButtons(inputId = "ylim_query",
                        label = "Y-axis limit setting:",
-                       choices = c("Common Max (Default)" = "common_max",
+                       choices = c("Common max of all heatmaps (Default)" = "common_max_all",
+                                   "Common max by sample grouping" = "common_max_group",
                                    "Inferred spearately" = "inferred", # since this is NULL, had toruble buidling in, can essentially do this with custom, so leave out for now
                                    "Custom" = "custom"),
-                       selected = "common_max",
+                       selected = "common_max_all",
                        inline = FALSE),
           conditionalPanel(
             condition = "input.ylim_query == 'custom'",
-            uiOutput("ylim")
+            uiOutput("ylim")),
+          conditionalPanel(
+            condition = "input.ylim_query == 'common_max_group'",
+            uiOutput("ylim_group_column")
           )
-          
-          
-          
       )
     }
   })
       
   output$visualize_render_box2 <- renderUI({
     if(is(rv$proplyr, "profileplyr")) {
-      box(width = 8,
+      box(width = 12,
           radioButtons(inputId = "local_vs_internet",
                        label = "Are you deploying this app from a local machine or from the internet?",
                        choices = c("local", "internet"),
@@ -715,12 +725,20 @@ server <- function(input, output, session) {
   
   
   # make interactive data table for sampleData (original input)
-  original_sampleData <- observeEvent(rv$proplyr_original, {
-    rv$sampleData_original <- sampleData(rv$proplyr_original) %>% 
+  observeEvent(rv$proplyr_original, {
+    rv$sampleData_original <- rv$sampleData_active_subset <- sampleData(rv$proplyr_original) %>% 
       as.data.frame() %>%
       select(sample_labels)
   })
   
+  # make interactive data table for sampleData (current table after manipulation)
+  # observeEvent(rv$proplyr, {
+  #   if(is(rv$proplyr, "profileplyr")){
+  #     rv$sampleData_active_subset <- sampleData(rv$proplyr) %>%
+  #       as.data.frame() %>%
+  #       select(sample_labels)
+  #   }
+  # })
 
 
   # create list of entries for new column 
@@ -759,7 +777,7 @@ server <- function(input, output, session) {
  
   update_proplyr_after_index <- observeEvent(rv$row_select_index, {
     rv$proplyr <- rv$proplyr_original[, ,rv$row_select_index]
-    rv$sampleData_active_subset <- sampleData(rv$proplyr) %>% 
+    rv$sampleData_active_subset <- sampleData(rv$proplyr) %>%
       as.data.frame() %>%
       select(sample_labels)
   })
@@ -817,6 +835,14 @@ server <- function(input, output, session) {
     input$all_color_scales_equal
   })
 
+  color_by_sample_group <- reactive({
+    if (input$individual_or_group_colors == "sample_groups") {
+      return(input$select_sample_column_for_colors)
+    } else {
+      return(NULL)
+    }
+  })
+  
   # produce the text boxes for user to input sample names
   output$sample_names <- renderUI({
     numSamples <- length(assays(rv$proplyr))
@@ -849,7 +875,7 @@ server <- function(input, output, session) {
   
   
   # produce the text boxes for user to input colors
-  output$matrices_color <- renderUI({
+  output$matrices_color_individual <- renderUI({
     numSamples <- length(assays(rv$proplyr))
     lapply(1:numSamples, function(i) {
       textInput(inputId = paste0("matrices_color_list", i),
@@ -858,29 +884,80 @@ server <- function(input, output, session) {
     })
   })
   
+  sampleData_colnames <- reactive({
+    colnames(rv$sampleData_active_subset)
+  })
+  
+  output$sample_column_for_colors <- renderUI({
+    selectInput(inputId = "select_sample_column_for_colors",
+                label = "Select the name of the column from the sample metadata to be used for color grouping:",
+                choices = sampleData_colnames())
+  })
+  
+  
+  output$user_group_colors <- renderUI({
+    
+    # get number of levels in the columns selected by the user
+    column_levels <- sampleData(rv$proplyr) %>%
+      .[, colnames(.) %in% input$select_sample_column_for_colors] %>%
+      as.factor() %>%
+      levels() 
+    
+    numGroups <- length(column_levels)
+    
+    # the list of color options for various defaults 
+    matrices_color_levels_default <- list(c("white, black"), c("white, red"), c("white, #6C7EDA"), c("white, #1B5B14"), c("white, purple"), c("white, #CC0066"), c("white, #009999"), c("white, #CC6600"))
+    
+    # this will fill in the default colors if there are more levels in the column than I have set defaults fro above
+    # this will allow us to fill in some default colors before user inputs
+    while(length(matrices_color_levels_default) < numGroups){
+      matrices_color_levels_default <- c(matrices_color_levels_default, matrices_color_levels_default)
+    }
+    matrices_color_levels <- matrices_color_levels_default[seq(numGroups)]
+    
+    
+    lapply(1:numGroups, function(i) {
+      textInput(inputId = paste0("matrices_color_groups_list", i),
+                label = paste0("Colors for ", input$select_sample_column_for_colors, " = ", column_levels[i], " (either two or three colors separated by commas)"),
+                value = matrices_color_levels[[i]])
+    })
+  })
   
   # this creates a list of the colors that the use entered
   # this was tricky because we wanted this to remain a list if not NULL, but not be a list if NULL (Default), so we couldn't just make everything a list, then unlist in heatmap call. 
   # So we just construct the default list anyway, don't use NULL and don't unlist in heatmap call
   matrices_color_new <- reactive({
-    numSamples <- length(assays(rv$proplyr))
+    
     temp <- list()
     #new_colors <- list()
-    if (input$matrices_color_query != 0){
+    if (input$individual_or_group_colors == "individual"){
+      numSamples <- length(assays(rv$proplyr))
       for(i in seq(numSamples)){
         temp[[i]] <- input[[paste0("matrices_color_list", i)]]
         temp[[i]] <- strsplit(temp[[i]], split = ",") %>%
           unlist() %>%
           trimws()
       }
-    }else{
-      for(i in seq(numSamples)){
-        temp[[i]] <-  c("blue", "white", "red")
+    }else if (input$individual_or_group_colors == "sample_groups"){
+      # get number of levels in the columns selected by the user
+      column_levels <- sampleData(rv$proplyr) %>%
+        .[, colnames(.) %in% input$select_sample_column_for_colors] %>%
+        as.factor() %>%
+        levels() 
+      
+      numGroups <- length(column_levels)
+      
+      for(i in seq(numGroups)){
+        temp[[i]] <- input[[paste0("matrices_color_groups_list", i)]]
+        temp[[i]] <- strsplit(temp[[i]], split = ",") %>%
+          unlist() %>%
+          trimws()
       }
     }
       temp
     })
 
+  
   
   output$ylim <- renderUI({
     numSamples <- length(assays(rv$proplyr))
@@ -927,36 +1004,44 @@ server <- function(input, output, session) {
                     value = c(min_for_figure, max_for_figure))})
     })
   
+  output$ylim_group_column <- renderUI({
+      selectInput(inputId = "ylim_group_column_name",
+                  label = "Select the name of the column from the sample metadata to be used for ylim grouping:",
+                  choices = sampleData_colnames())
+  })
+  
   # when the button to make the enrichedheatmap is pressed, the ranges from the sliders will be taken into account
   ylim_new <- eventReactive(input$MakeEnrichedHeatmap, {
-    if(input$ylim_query == "custom")
-           { numSamples <- length(assays(rv$proplyr))
-           temp <- list()
-           for(i in seq(numSamples)){
-             temp[[i]] <- input[[paste0("ylim_list", i)]]
-           }
-           temp }
-  
-    else if (input$ylim_query == "common_max") {
+    if(input$ylim_query == "custom") { 
+      numSamples <- length(assays(rv$proplyr))
+      temp <- list()
+      for(i in seq(numSamples)){
+        temp[[i]] <- input[[paste0("ylim_list", i)]]
+      }
+      temp 
+    } else if (input$ylim_query == "common_max_all") {
       "common_max"
+    } else if (input$ylim_query == "common_max_group") {
+      input$ylim_group_column_name
     } # will default to NULL (inferred) if it gets past these if statements
-
+    
   })
   
   # when the button to make the enrichedheatmap is pressed, the ranges from the sliders will be taken into account
   ylim_new_local <- eventReactive(input$MakeEnrichedHeatmap_local, {
-    if(input$ylim_query == "custom")
-    { numSamples <- length(assays(rv$proplyr))
-    temp <- list()
-    for(i in seq(numSamples)){
-      temp[[i]] <- input[[paste0("ylim_list", i)]]
-    }
-    temp }
-
-    else if (input$ylim_query == "common_max") {
+    if(input$ylim_query == "custom"){ 
+      numSamples <- length(assays(rv$proplyr))
+      temp <- list()
+      for(i in seq(numSamples)){
+        temp[[i]] <- input[[paste0("ylim_list", i)]]
+      }
+      temp 
+    }else if (input$ylim_query == "common_max_all") {
       "common_max"
-    } # will default to NULL (inferred) if it gets past these if statements
-
+    } else if (input$ylim_query == "common_max_group") {
+      input$ylim_group_column_name
+    }# will default to NULL (inferred) if it gets past these if statements
+    
   })
 
   
@@ -972,6 +1057,7 @@ server <- function(input, output, session) {
                                                          include_group_annotation = include_group_annotation(),
                                                          sample_names = unlist(sample_names_new()),
                                                          ylim = ylim_new(),
+                                                         color_by_sample_group = color_by_sample_group(),
                                                          matrices_color = matrices_color_new(),
                                                          all_color_scales_equal = all_color_scales_equal()
                    )
@@ -995,6 +1081,7 @@ server <- function(input, output, session) {
                                                          include_group_annotation = include_group_annotation(),
                                                          sample_names = unlist(sample_names_new()),
                                                          ylim = ylim_new_local(),
+                                                         color_by_sample_group = color_by_sample_group(),
                                                          matrices_color = matrices_color_new(),
                                                          all_color_scales_equal = all_color_scales_equal()
                    )
@@ -1023,7 +1110,9 @@ server <- function(input, output, session) {
                                         include_group_annotation = include_group_annotation(),
                                         sample_names = unlist(sample_names_new()),
                                         ylim = ylim_new(),
-                                        matrices_color = matrices_color_new()
+                                        color_by_sample_group = color_by_sample_group(),
+                                        matrices_color = matrices_color_new(),
+                                        all_color_scales_equal = all_color_scales_equal()
           )
 
           dev.off()
