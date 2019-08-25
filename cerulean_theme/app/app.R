@@ -1,3 +1,4 @@
+library(profileplyr)
 library(shiny)
 library(DT)
 library(shinydashboard)
@@ -10,7 +11,6 @@ library(shinythemes)
 library(shinyWidgets)
 library(grid)
 library(shinyjs)
-library(profileplyr)
 
 options(shiny.maxRequestSize=1000*1024^2) 
 
@@ -652,7 +652,6 @@ server <- function(input, output, session) {
                        max = 10,
                        step = 1,
                        value = 2),
-          tags$h4("5) Extra annotation column parameters:"),
           br()
         ),
         #tags$h5("Enter/select the names of columns from the range metadata for extra annotation heatmaps:"),
@@ -738,14 +737,14 @@ server <- function(input, output, session) {
     if(is(rv$proplyr, "profileplyr")) {
       wellPanel(
         tags$h4("Generate range heatmap:"),
-        radioButtons(inputId = "local_vs_internet",
-                     label = "Are you deploying this app from a local machine or from the internet?",
-                     choices = c("local", "internet")
-                     #selected = "local"
+        radioButtons(inputId = "local_vs_browser",
+                     label = "Are you deploying this app from a local machine or from the browser?",
+                     choices = c("local", "browser"),
+                     selected = character(0)
         ),
         br(),
         conditionalPanel(
-          condition = "input.local_vs_internet == 'local'",
+          condition = "input.local_vs_browser == 'local'",
           actionButton(inputId = "MakeEnrichedHeatmap_local",
                        label = "Click to generate range heatmap and download", 
                        icon("check"),
@@ -756,11 +755,12 @@ server <- function(input, output, session) {
           plotOutput("EnrichedHeatmap_local")
         ),
         conditionalPanel(
-          condition = "input.local_vs_internet == 'internet'",
+          condition = "input.local_vs_browser == 'browser'",
           actionButton(inputId = "MakeEnrichedHeatmap",
                        label = "Click to generate range heatmap only", 
                        icon("check"),
                        class = "btn btn-primary"),
+          plotOutput("EnrichedHeatmap"),
           downloadButton(outputId = "download_heatmap",
                          label = "Click to download range heatmap")
         )
@@ -953,7 +953,7 @@ server <- function(input, output, session) {
   
   output$sample_table_input <- renderUI({
     if(is(rv$proplyr, "profileplyr")) {
-      box(DT::dataTableOutput("sample_table"), 
+      box(DT::dataTableOutput("sample_table"),
           title = "Samples from imported data:",
           width = 12,
           solidHeader = TRUE,
@@ -1394,11 +1394,8 @@ server <- function(input, output, session) {
     numExtra <- length(input$extra_annotation_columns_input)
     color_list <- vector(mode = "list", 
                          length = numExtra)
-    # make default color vector to pull from
-    colors <- palette()
-    while(length(colors) < numGroups){
-      colors <- c(colors,colors)
-    }
+    
+
     if (!is.null(input$extra_annotation_columns_input)){ 
       for (i in seq(numExtra)){
         column <- mcols(rv$proplyr)[colnames(mcols(rv$proplyr)) %in% input$extra_annotation_columns_input[i]][,1]
@@ -1408,6 +1405,12 @@ server <- function(input, output, session) {
           class <- "factor"
           level_names <- levels(column)
           numLevels <- length(level_names)
+   
+          # make default color vector to pull from
+          colors <- palette()
+          while(length(colors) < numLevels){
+            colors <- c(colors,colors)
+          }
           
           temp_factor_colors <- vector()
           for(x in seq(numLevels)){
@@ -1486,7 +1489,7 @@ server <- function(input, output, session) {
   })
   
   # when the button to make the enrichedheatmap is pressed, the ranges from the sliders will be taken into account
-  ylim_new <- eventReactive(input$MakeEnrichedHeatmap, {
+  ylim_new <- eventReactive(rv$proplyr, {
     if(input$ylim_query == "custom") { 
       numSamples <- length(assays(rv$proplyr))
       temp <- list()
@@ -1503,7 +1506,7 @@ server <- function(input, output, session) {
   })
   
   # when the button to make the enrichedheatmap is pressed, the ranges from the sliders will be taken into account
-  ylim_new_local <- eventReactive(input$MakeEnrichedHeatmap_local, {
+  ylim_new_local <- eventReactive(rv$proplyr, {
     if(input$ylim_query == "custom"){ 
       numSamples <- length(assays(rv$proplyr))
       temp <- list()
@@ -1650,15 +1653,30 @@ server <- function(input, output, session) {
       unlist() %>%
       trimws()
   })
-  
-  genes_to_label <- eventReactive(input$MakeEnrichedHeatmap_local, {
+
+  genes_to_label_local <- eventReactive(rv$genes_to_label, {
     if(rv$genes_to_label %in% "default"){
       NULL
     } else {
       rv$genes_to_label
     }
   })
-  
+
+  observeEvent(input$MakeEnrichedHeatmap, {
+    req(input$genes_to_label_option)
+    rv$genes_to_label <- strsplit(input$direct_type_inputbox, split = ",|\ ") %>%
+      unlist() %>%
+      trimws()
+  })
+
+  genes_to_label <- eventReactive(rv$genes_to_label, {
+    if(rv$genes_to_label %in% "default"){
+      NULL
+    } else {
+      rv$genes_to_label
+    }
+  })
+
   # genes_to_label <- eventReactive(input$MakeEnrichedHeatmap, {
   #   #req(input$direct_type_inputbox)
   #   strsplit(input$direct_type_inputbox, split = ",|\ ") %>%
@@ -1667,8 +1685,35 @@ server <- function(input, output, session) {
   # })
   
   
+  # plot_input <- function(){
+  #   
+  #   generateEnrichedHeatmap(object = rv$proplyr,
+  #                           extra_annotation_columns = unlist(extra_annotation_columns()),
+  #                           extra_anno_color = extra_anno_color_input(),
+  #                           extra_anno_width = unlist(extra_anno_width_input()),
+  #                           include_group_annotation = include_group_annotation(),
+  #                           group_anno_color = unlist(group_color_new()),
+  #                           group_anno_row_title_gp = gpar(fontsize = group_anno_label_fontsize(),
+  #                                                          fontface = group_anno_label_fontface()),
+  #                           group_anno_width = group_anno_width(),
+  #                           sample_names = unlist(sample_names_new()),
+  #                           ylim = ylim_new(),
+  #                           color_by_sample_group = color_by_sample_group(),
+  #                           matrices_color = matrices_color_new(),
+  #                           all_color_scales_equal = all_color_scales_equal(),
+  #                           top_anno_height = unit(top_anno_height(), "cm"),
+  #                           top_anno_axis_font = gpar(fontsize = top_anno_axis_font()),
+  #                           matrices_column_title_gp = gpar(fontsize = sample_label_fontsize(),
+  #                                                           fontface = sample_label_fontface()),
+  #                           samples_to_sortby = samples_to_sortby(),
+  #                           show_heatmap_legend  = show_heatmap_legend(),
+  #                           genes_to_label = genes_to_label(),
+  #                           gene_label_font_size = genes_to_label_fontsize_input()
+  #   )
+  #   
+  # }
   
-  options(shiny.usecairo=TRUE)
+ 
   #make heatmap in 'Visualize' tab for direct file upload
   makeHeatmap <- observeEvent(input$MakeEnrichedHeatmap, {
     withProgress(message = 'Calculation in progress',
@@ -1698,16 +1743,18 @@ server <- function(input, output, session) {
                                                          genes_to_label = genes_to_label(),
                                                          gene_label_font_size = genes_to_label_fontsize_input()
                    )
+                   
                    # dev.off()
                  })
   })
 
-  output$EnrichedHeatmap <- renderPlot(
-    rv$heatmap
-  )
+  pdf(NULL)
+  output$EnrichedHeatmap <- renderPlot({
+     rv$heatmap
+  })
   
  
-
+  options(shiny.usecairo=TRUE)
   makeHeatmap_local <- observeEvent(input$MakeEnrichedHeatmap_local, {
     withProgress(message = 'Calculation in progress',
                  value = 0.5, {
@@ -1733,7 +1780,7 @@ server <- function(input, output, session) {
                                                                                          fontface = sample_label_fontface()),
                                                          samples_to_sortby = samples_to_sortby(),
                                                          show_heatmap_legend  = show_heatmap_legend(),
-                                                         genes_to_label = genes_to_label(),
+                                                         genes_to_label = genes_to_label_local(),
                                                          gene_label_font_size = genes_to_label_fontsize_input()
                    )
                    dev.off()
@@ -1743,46 +1790,51 @@ server <- function(input, output, session) {
 
 
   output$EnrichedHeatmap_local <- renderPlot(
-    rv$heatmap_local
+     rv$heatmap_local
   )
 
+
+  
+  
+  options(shiny.usecairo=TRUE)
   output$download_heatmap <- downloadHandler(
-    filename = function() {
-          paste("heatmap", "_",Sys.time(),".pdf",sep="")
-        },
-        content = function(file) {
-          # temp_file <- file.path(tempdir(), "heatmap_test_ddd.pdf")
-          # file.copy("heatmap_test_ddd.pdf", temp_file, overwrite = TRUE)
+    filename = function(){
+      paste("heatmap", "_",Sys.time(),".pdf",sep="")
+      },
+    content = function(file) {
+      # temp_file <- file.path(tempdir(), "heatmap_test_ddd.pdf")
+      # file.copy("heatmap_test_ddd.pdf", temp_file, overwrite = TRUE)
 
-          #pdf(file)
-          cairo_pdf(filename = file)
-          rv$heatmap <- generateEnrichedHeatmap(object = rv$proplyr,
-                                        extra_annotation_columns = unlist(extra_annotation_columns()),
-                                        extra_anno_color = extra_anno_color_input(),
-                                        extra_anno_width = unlist(extra_anno_width_input()),
-                                        include_group_annotation = include_group_annotation(),
-                                        group_anno_color = unlist(group_color_new()),
-                                        group_anno_row_title_gp = gpar(fontsize = group_anno_label_fontsize(),
-                                                                       fontface = group_anno_label_fontface()),
-                                        group_anno_width = group_anno_width(),
-                                        sample_names = unlist(sample_names_new()),
-                                        ylim = ylim_new(),
-                                        color_by_sample_group = color_by_sample_group(),
-                                        matrices_color = matrices_color_new(),
-                                        all_color_scales_equal = all_color_scales_equal(),
-                                        top_anno_height = unit(top_anno_height(), "cm"),
-                                        top_anno_axis_font = gpar(fontsize = top_anno_axis_font()),
-                                        matrices_column_title_gp = gpar(fontsize = sample_label_fontsize(),
-                                                                        fontface = sample_label_fontface()),
-                                        samples_to_sortby = samples_to_sortby(),
-                                        show_heatmap_legend  = show_heatmap_legend(),
-                                        genes_to_label = genes_to_label(),
-                                        gene_label_font_size = genes_to_label_fontsize_input()
-          )
+      #pdf(file)
+      cairo_pdf(filename = file)
+      generateEnrichedHeatmap(object = rv$proplyr,
+                              extra_annotation_columns = unlist(extra_annotation_columns()),
+                              extra_anno_color = extra_anno_color_input(),
+                              extra_anno_width = unlist(extra_anno_width_input()),
+                              include_group_annotation = include_group_annotation(),
+                              group_anno_color = unlist(group_color_new()),
+                              group_anno_row_title_gp = gpar(fontsize = group_anno_label_fontsize(),
+                                                              fontface = group_anno_label_fontface()),
+                              group_anno_width = group_anno_width(),
+                              sample_names = unlist(sample_names_new()),
+                              ylim = ylim_new(),
+                              color_by_sample_group = color_by_sample_group(),
+                              matrices_color = matrices_color_new(),
+                              all_color_scales_equal = all_color_scales_equal(),
+                              top_anno_height = unit(top_anno_height(), "cm"),
+                              top_anno_axis_font = gpar(fontsize = top_anno_axis_font()),
+                              matrices_column_title_gp = gpar(fontsize = sample_label_fontsize(),
+                                                              fontface = sample_label_fontface()),
+                              samples_to_sortby = samples_to_sortby(),
+                              show_heatmap_legend  = show_heatmap_legend(),
+                              genes_to_label = genes_to_label(),
+                              gene_label_font_size = genes_to_label_fontsize_input()
+      )
+     
+      dev.off()
+    },
+    contentType = "application/pdf"
 
-          dev.off()
-        },
-        contentType = "application/pdf"
     )
 
 
