@@ -1,3 +1,6 @@
+
+#BiocManager::install(version='devel')
+
 library(profileplyr)
 library(shiny)
 library(DT)
