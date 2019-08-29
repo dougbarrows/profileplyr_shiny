@@ -14,6 +14,7 @@ library(shinythemes)
 library(shinyWidgets)
 library(grid)
 library(shinyjs)
+library(shinyFiles)
 
 options(shiny.maxRequestSize=1000*1024^2) 
 
@@ -41,12 +42,32 @@ ui <- fluidPage(theme = shinytheme("cerulean"),
                                  choices = c("BAM" = "bam",
                                              "bigwig" = "bigwig"),
                                  inline = TRUE),
-                    textInput(inputId = "signalFiles",
-                              label = "Enter paths to bigwig or bam files (each separated by a comma):",
-                              value = ""),
-                    textInput(inputId = "testRanges",
-                              label = "Enter paths to bed files (each separated by a comma):",
-                              value = ""),
+                   
+                     uiOutput("numSignalFiles_ui"),
+                    
+                    
+                    fluidRow(
+                      column(2,
+                             uiOutput("SignalFilePathButton")), 
+                      column(10,
+                             htmlOutput("SignalFilePathText"))
+                    ),
+                    br(),
+                    
+                    uiOutput("numBedFiles_ui"),
+                    fluidRow(
+                      column(2,
+                             uiOutput("BedFilePathButton")), 
+                      column(10,
+                             uiOutput("BedFilePathText"))
+                    ),
+                    br(),
+                    # textInput(inputId = "signalFiles",
+                    #           label = "Enter paths to bigwig or bam files (each separated by a comma):",
+                    #           value = ""),
+                    # textInput(inputId = "testRanges",
+                    #           label = "Enter paths to bed files (each separated by a comma):",
+                    #           value = ""),
                     radioButtons(inputId = "soggi_style",
                                  label = "How do you want the ranges from the bed file to be defined?",
                                  choices = c("all ranges in bed files normalized to the same length" = "percentOfRegion",
@@ -175,9 +196,131 @@ ui <- fluidPage(theme = shinytheme("cerulean"),
 
 
 server <- function(input, output, session) {
-
   
+  rv <- reactiveValues(proplyr = "No profileplyr object has been uploaded/generated")
   
+  output$numSignalFiles_ui <- renderUI({
+  numericInput(inputId = "numSignalFiles", 
+               label = paste0("How many ", input$format, " files would you like to use?"), 
+               value = 1, 
+               min = 1, 
+               step = 1)
+  })
+  
+  output$SignalFilePathButton <- renderUI({
+    req(input$numSignalFiles)
+      signalFiles_buttons <- as.list(1:input$numSignalFiles)
+      signalFiles_buttons <- lapply(signalFiles_buttons, function(i)
+      {
+        
+        shinyFilesButton(paste0("GetSignalFile", i),
+                       paste0("Select ", input$format," file # ", i),
+                       title = "Please select a file:", multiple = FALSE,
+                       class = "btn btn-primary")
+        
+      })
+    
+  })
+  
+  # this function is used to get the paths to a 'shinyFile' link, it is used below to both print the file paths and store them to be used later on 
+  selected_files_function <- function(input_name, x) {
+    volumes = c(Home = fs::path_home(), "R Installation" = R.home(), getVolumes()())
+    
+    shinyFileChoose(input, 
+                    paste0(input_name, x), 
+                    roots = volumes, 
+                    session = session)
+    
+    if(!is.null(input[[paste0(input_name, x)]])){
+      file_selected <-parseFilePaths(volumes, 
+                                     input[[paste0(input_name, x)]])
+      return(file_selected$datapath)
+  }
+    
+  }
+  
+  # render the paths just to the right of the links
+  output$SignalFilePathText <- renderUI({
+    req(input$numSignalFiles)
+    signalFiles_text <- as.list(1:input$numSignalFiles)
+    signalFiles_text <- lapply(signalFiles_text, function(i)
+    {
+      # use the function defined above to get the selected files
+      signalFiles_files <- selected_files_function(input_name = "GetSignalFile", x = i)
+      if (!is.null(signalFiles_files)){
+        renderText(paste0(input$format, " file ", i, ": ", as.character(signalFiles_files)))
+      }
+    })
+    
+  })
+  
+  #use the same function that we used to print the paths to the files to make a reactive value that contains a vector of paths
+  signalFiles_paths <- reactive({
+    req(input$numSignalFiles)
+      signalFiles_text2 <- as.list(1:input$numSignalFiles)
+      signalFiles_text2 <- lapply(signalFiles_text2, function(i)
+      {
+        # use the function defined above to get the selected files
+        selected_files_function(input_name = "GetSignalFile", x = i)
+        
+      })
+      unlist(signalFiles_text2)
+    
+  })
+  
+  output$numBedFiles_ui <- renderUI({
+    
+    numericInput(inputId = "numBedFiles", 
+                 label = paste0("How many bed files would you like to use?"), 
+                 value = 1, 
+                 min = 1, 
+                 step = 1)
+  })
+  
+  output$BedFilePathButton <- renderUI({
+    req(input$numBedFiles)
+      testRanges_buttons <- as.list(1:input$numBedFiles)
+      testRanges_buttons <- lapply(testRanges_buttons, function(i)
+      {
+        
+        shinyFilesButton(paste0("GetBedFile", i),
+                       paste0("Select bed file # ", i),
+                       title = "Please select a file:", multiple = FALSE,
+                       #buttonType = "default", 
+                       class = "btn btn-primary")
+        
+      })
+    
+  })
+  
+  # render the paths just to the right of the links
+  output$BedFilePathText <- renderUI({
+    req(input$numBedFiles)
+      testRanges_text <- as.list(1:input$numBedFiles)
+      testRanges_text <- lapply(testRanges_text, function(i)
+      {
+        # use the function defined above to get the selected files
+        testRanges_files <- selected_files_function(input_name = "GetBedFile", x = i)
+        if (!is.null(testRanges_files)){
+          renderText(paste0("bed file ", i, ": ", as.character(testRanges_files)))
+        }
+      })
+    
+  })
+  
+  #use the same function that we used to print the paths to the files to make a reactive value that contains a vector of paths
+  testRanges_paths <- reactive({
+    req(input$numBedFiles)
+      testRanges_text2 <- as.list(1:input$numBedFiles)
+      testRanges_text2 <- lapply(testRanges_text2, function(i)
+      {
+        # use the function defined above to get the selected files
+        selected_files_function(input_name = "GetBedFile", x = i)
+        
+      })
+      unlist(testRanges_text2)
+    
+  }) 
   
   output$labeled_image <- renderUI({
     if(is(rv$proplyr, "profileplyr")) {
@@ -803,21 +946,21 @@ server <- function(input, output, session) {
   #output$generate_headline <- renderText("<b> Generate, upload, or refresh profileplyr object: <b> <br><br>")
   
   
-  rv <- reactiveValues(proplyr = "No profileplyr object has been uploaded/generated")
-  
   rv$labeled_image <- 'labeled_figure_for_app.png'
   
   # read in signal files and bed files to make profileplyr object from Bam/bigwig/bed
   from_bam_bigwig_bed <- observeEvent(input$go_bam_bigwig, {
-    withProgress(message = 'Calculation in progress',
+    withProgress(message = 'Action in progress',
                  value = 0.5, {
                    
-                   signalFiles <- strsplit(input$signalFiles, split = ",") %>%
-                     unlist() %>%
-                     trimws()
-                   testRanges <- strsplit(input$testRanges, split = ",") %>%
-                     unlist() %>%
-                     trimws()
+                   signalFiles <- signalFiles_paths()
+                   testRanges <- testRanges_paths()
+                   # signalFiles <- strsplit(input$signalFiles, split = ",") %>%
+                   #   unlist() %>%
+                   #   trimws()
+                   # testRanges <- strsplit(input$testRanges, split = ",") %>%
+                   #   unlist() %>%
+                   #   trimws()
                    rv$proplyr <- rv$proplyr_original <- BamBigwig_to_chipProfile(signalFiles = signalFiles,
                                                                                  testRanges = testRanges,
                                                                                  format = input$format,
@@ -834,7 +977,7 @@ server <- function(input, output, session) {
 
   # read in from deeptools
   from_deepTools <- observeEvent(input$deepTools_mat_upload, {
-    withProgress(message = 'Calculation in progress',
+    withProgress(message = 'Action in progress',
                  value = 0.5, {
       file <- input$deepTools_mat_upload
       rv$proplyr <- rv$proplyr_original <- import_deepToolsMat(file$datapath)
@@ -954,10 +1097,11 @@ server <- function(input, output, session) {
     rv$row_select_index <- NULL
   })
   
+
   output$sample_table_input <- renderUI({
     if(is(rv$proplyr, "profileplyr")) {
       box(DT::dataTableOutput("sample_table"),
-          title = "Samples from imported data:",
+       title = "Samples from imported data:",
           width = 12,
           solidHeader = TRUE,
           status = "primary")
@@ -1719,7 +1863,7 @@ server <- function(input, output, session) {
  
   #make heatmap in 'Visualize' tab for direct file upload
   makeHeatmap <- observeEvent(input$MakeEnrichedHeatmap, {
-    withProgress(message = 'Calculation in progress',
+    withProgress(message = 'Action in progress',
                  value = 0.5, {
                    # file = input$heatmap_path
                    # cairo_pdf(filename = file)
@@ -1759,7 +1903,7 @@ server <- function(input, output, session) {
  
   options(shiny.usecairo=TRUE)
   makeHeatmap_local <- observeEvent(input$MakeEnrichedHeatmap_local, {
-    withProgress(message = 'Calculation in progress',
+    withProgress(message = 'Action in progress',
                  value = 0.5, {
                    file = input$heatmap_path_local
                    cairo_pdf(filename = file)
@@ -1895,7 +2039,7 @@ server <- function(input, output, session) {
   })
   
   groupby_granges_go <- observeEvent(input$perform_groupby_granges, {
-    withProgress(message = 'Calculation in progress',
+    withProgress(message = 'Action in progress',
                  value = 0.5, {
                    rv$proplyr <- groupBy(rv$proplyr,
                                          group = rv$granges,
@@ -1951,7 +2095,7 @@ server <- function(input, output, session) {
   
 
   groupby_gene_list_go <- observeEvent(input$perform_groupby_genes, {
-    withProgress(message = 'Calculation in progress',
+    withProgress(message = 'Action in progress',
                  value = 0.5, {
                    names(rv$genes) <- gene_list_names_new()
                    rv$proplyr <- groupBy(rv$proplyr,
@@ -1981,7 +2125,7 @@ server <- function(input, output, session) {
       })
 
     cluster <- observeEvent(input$perform_cluster, {
-      withProgress(message = 'Calculation in progress',
+      withProgress(message = 'Action in progress',
                    value = 0.5, {
                      set.seed(0)
                      rv$proplyr <- clusterRanges(rv$proplyr,
@@ -1995,7 +2139,7 @@ server <- function(input, output, session) {
 
   ##### annotate with chipseeker
   annotate_cs <- observeEvent(input$perform_annotate_cs, {
-    withProgress(message = 'Calculation in progress',
+    withProgress(message = 'Action in progress',
                  value = 0.5, {
         rv$proplyr <- annotateRanges(rv$proplyr,
                                      TxDb = input$cs_genome,
@@ -2007,7 +2151,7 @@ server <- function(input, output, session) {
   
   ##### annotate with great
   annotate_great <- observeEvent(input$perform_annotate_great, {
-    withProgress(message = 'Calculation in progress',
+    withProgress(message = 'Action in progress',
                  value = 0.5, {
                    rv$proplyr <- annotateRanges_great(rv$proplyr,
                                                       species = input$great_species)
