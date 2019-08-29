@@ -16,179 +16,196 @@ library(grid)
 library(shinyjs)
 library(shinyFiles)
 
-options(shiny.maxRequestSize=1000*1024^2) 
+options(shiny.maxRequestSize=5000*1024^2) 
 
 ui <- fluidPage(theme = shinytheme("cerulean"),
                 useShinyjs(),
                 navbarPage("profileplyr",
-  tabPanel("Input Data",
+                           tabPanel("Input Data",
+                                    
+                                    htmlOutput("generate_headline"),
+                                    radioButtons(inputId = "inputType",
+                                                 label = "What are you starting from?",
+                                                 choices = c("BAM/bigwig/bed files" = "bam_bigwig_bed",
+                                                             "deepTools matrix (from computeMatrix)" = "deepTools",
+                                                             "profileplyr object (e.g. RData file)" = "profileplyr"),
+                                                 selected = character(0)),
+                                    
+                                    
+                                    ###################################################
+                                    # conditions if user selects bam/bigwig/bed input
+                                    ###################################################
+                                    conditionalPanel(
+                                      condition = "input.inputType == 'bam_bigwig_bed'",
+                                      radioButtons(inputId = "input_local_vs_server",
+                                                   label = "Are you deploying this app locally, using docker/a server?",
+                                                   choices = c("locally" = "locally",
+                                                               "using docker or through a server" = "docker_server"),
+                                                   inline = FALSE),
+                                      radioButtons(inputId = "format",
+                                                   label = "Signal File Format:",
+                                                   choices = c("BAM" = "bam",
+                                                               "bigwig" = "bigwig"),
+                                                   inline = TRUE),
+                                      conditionalPanel(
+                                        condition = "input.input_local_vs_server == 'docker_server'",
+                                        uiOutput("numSignalFiles_ui_server"),
+                                        uiOutput("SignalFileUpload"), 
 
-                htmlOutput("generate_headline"),
-                  radioButtons(inputId = "inputType",
-                               label = "What are you starting from?",
-                               choices = c("BAM/bigwig/bed files" = "bam_bigwig_bed",
-                                           "deepTools matrix (from computeMatrix)" = "deepTools",
-                                           "profileplyr object (e.g. RData file)" = "profileplyr"),
-                               selected = character(0)),
-                  
-                  
-                  ###################################################
-                  # conditions if user selects bam/bigwig/bed input
-                  ###################################################
-                  conditionalPanel(
-                    condition = "input.inputType == 'bam_bigwig_bed'",
-                    radioButtons(inputId = "format",
-                                 label = "Signal File Format:",
-                                 choices = c("BAM" = "bam",
-                                             "bigwig" = "bigwig"),
-                                 inline = TRUE),
-                   
-                     uiOutput("numSignalFiles_ui"),
-                    
-                    
-                    fluidRow(
-                      column(2,
-                             uiOutput("SignalFilePathButton")), 
-                      column(10,
-                             htmlOutput("SignalFilePathText"))
-                    ),
-                    br(),
-                    
-                    uiOutput("numBedFiles_ui"),
-                    fluidRow(
-                      column(2,
-                             uiOutput("BedFilePathButton")), 
-                      column(10,
-                             uiOutput("BedFilePathText"))
-                    ),
-                    br(),
-                    # textInput(inputId = "signalFiles",
-                    #           label = "Enter paths to bigwig or bam files (each separated by a comma):",
-                    #           value = ""),
-                    # textInput(inputId = "testRanges",
-                    #           label = "Enter paths to bed files (each separated by a comma):",
-                    #           value = ""),
-                    radioButtons(inputId = "soggi_style",
-                                 label = "How do you want the ranges from the bed file to be defined?",
-                                 choices = c("all ranges in bed files normalized to the same length" = "percentOfRegion",
-                                             "defined by a specified distance from the center of weach range in the bed files" = "point"),
-                                 selected = "percentOfRegion"),
-                    conditionalPanel(
-                      condition = "input.soggi_style == 'percentOfRegion'",
-                      numericInput(inputId = "distanceAround",
-                                  label = "Define the distance to extend to either side of each range (as a percentage of each range):",
-                                  value = 100,
-                                  min = 1,
-                                  max = 500,
-                                  step = 10),
-                      numericInput(inputId = "nOfWindows",
-                                   label = "Enter the desired number of bins the normalized regions should be split into:",
-                                   value = 100,
-                                   min = 1,
-                                   max = 500,
-                                   step = 10)
-                    ),
-                    conditionalPanel(
-                      condition = "input.soggi_style == 'point'",
-                      numericInput(inputId = "distanceUp",
-                                   label = "Enter the distance (in base pairs) upstream from the center of each range to include in the quantification:",
-                                   value = 1500,
-                                   min = 1,
-                                   max = 10000,
-                                   step = 100),
-                      numericInput(inputId = "distanceDown",
-                                   label = "Enter the distance (in base pairs) downstream from the center of each range to include in the quantification:",
-                                   value = 1500,
-                                   min = 1,
-                                   max = 10000,
-                                   step = 100),
-                      numericInput(inputId = "bin_size",
-                                   label = "Enter the size of each bin in which the signal should be quantified (in base pairs):",
-                                   value = 20,
-                                   min = 1,
-                                   max = 1000, # could make this an uiOutput and make this value to be euql to the size of the window?
-                                   step = 10)
-                    ),
+                                        br(),
+                                        
+                                        uiOutput("numBedFiles_ui_server"),
+                                        uiOutput("BedFileUpload")
+                                        ), 
 
-                                 
-                    actionButton(inputId = "go_bam_bigwig",
-                                 label = "Generate profileplyr object", 
-                                 icon("check"),
-                                 class = "btn btn-primary"),
-                  # option to download
-                    uiOutput("download_bam_bigwig_bed")),
-                  # 
-                  # ###################################################
-                  # # conditions if the user selects deepTools matrix
-                  # ###################################################
-                  conditionalPanel(
-                    condition = "input.inputType == 'deepTools'",
-                    fileInput(inputId = "deepTools_mat_upload",
-                              label = "Upload deeptools matrix (output of computeMatrix):"),
-                    # actionButton(inputId = "go_deepTools",
-                    #              label = "Generate profileplyr object"),
-                  
-                  # the option to download the profileplyr object
-                    uiOutput("download_deepTools")),
-                  
-                  ###################################################
-                  # conditions if the user selects direct profileplyr object upload
-                  ###################################################
-                  conditionalPanel(
-                    condition = "input.inputType == 'profileplyr'",
-                    fileInput(inputId = "profileplyr_upload",
-                              label = "Upload profileplyr object:")),
-                  
-                  #htmlOutput("object_headline"),
-                  #verbatimTextOutput("proplyr_print"),
-                uiOutput("download_object_button_inputTab"),
-                uiOutput("clear_object"),
-                uiOutput("clear_warning"),
-                br(),
-                br(),
-                uiOutput("sample_table_input")
-      ),
-
-  tabPanel("Select/Annotate Samples",
-           uiOutput("download_object_button_selectTab"),
-           br(),
-           # htmlOutput("select_samples_message"),
-           # fluidRow(
-           #   column(4,
-            uiOutput("select_samples_box"),
-             # ),
-             # column(8,
-           uiOutput("new_sample_column_box"),
-           br(),
-           uiOutput("selected_samples_render_table")
-             # )
-          # )
-  ),
-  tabPanel("Manupulate Ranges",
-           uiOutput("download_object_button_manipulateTab"),
-           br(),
-           uiOutput("manipulate_render"),
-           br(),
-           fluidRow(
-             column(7,
-                    (uiOutput("explore_ranges_render"))),
-             column(5,
-                    (uiOutput("selected_samples_table_render_manipulate")))
-           )
-          
-  ),
-  tabPanel("Visualize",
-           fluidRow(
-             column(5,
-                    uiOutput("download_object_button_visualizeTab"),
-                    br(),
-                    uiOutput("labeled_image"),
-                    uiOutput("visualize_render_box1")),
-             column(7, 
-                    uiOutput("selected_samples_table_render_visualize"),
-                    uiOutput("visualize_render_box2"))
-           )
-  )
+                                      conditionalPanel(
+                                        condition = "input.input_local_vs_server == 'locally'",
+                                      uiOutput("numSignalFiles_ui"),
+                                      
+                                        fluidRow(
+                                          column(2,
+                                                 uiOutput("SignalFilePathButton")), 
+                                          column(10,
+                                                 htmlOutput("SignalFilePathText"))
+                                        ),
+                                        br(),
+                                        
+                                        uiOutput("numBedFiles_ui"),
+                                        fluidRow(
+                                          column(2,
+                                                 uiOutput("BedFilePathButton")), 
+                                          column(10,
+                                                 uiOutput("BedFilePathText"))
+                                        )
+                                      ),
+                                      br(),
+                                      # textInput(inputId = "signalFiles",
+                                      #           label = "Enter paths to bigwig or bam files (each separated by a comma):",
+                                      #           value = ""),
+                                      # textInput(inputId = "testRanges",
+                                      #           label = "Enter paths to bed files (each separated by a comma):",
+                                      #           value = ""),
+                                      radioButtons(inputId = "soggi_style",
+                                                   label = "How do you want the ranges from the bed file to be defined?",
+                                                   choices = c("all ranges in bed files normalized to the same length" = "percentOfRegion",
+                                                               "defined by a specified distance from the center of each range in the bed files" = "point"),
+                                                   selected = "percentOfRegion"),
+                                      conditionalPanel(
+                                        condition = "input.soggi_style == 'percentOfRegion'",
+                                        numericInput(inputId = "distanceAround",
+                                                     label = "Define the distance to extend to either side of each range (as a percentage of each range):",
+                                                     value = 100,
+                                                     min = 1,
+                                                     max = 500,
+                                                     step = 10),
+                                        numericInput(inputId = "nOfWindows",
+                                                     label = "Enter the desired number of bins the normalized regions should be split into:",
+                                                     value = 100,
+                                                     min = 1,
+                                                     max = 500,
+                                                     step = 10)
+                                      ),
+                                      conditionalPanel(
+                                        condition = "input.soggi_style == 'point'",
+                                        numericInput(inputId = "distanceUp",
+                                                     label = "Enter the distance (in base pairs) upstream from the center of each range to include in the quantification:",
+                                                     value = 1500,
+                                                     min = 1,
+                                                     max = 10000,
+                                                     step = 100),
+                                        numericInput(inputId = "distanceDown",
+                                                     label = "Enter the distance (in base pairs) downstream from the center of each range to include in the quantification:",
+                                                     value = 1500,
+                                                     min = 1,
+                                                     max = 10000,
+                                                     step = 100),
+                                        numericInput(inputId = "bin_size",
+                                                     label = "Enter the size of each bin in which the signal should be quantified (in base pairs):",
+                                                     value = 20,
+                                                     min = 1,
+                                                     max = 1000, # could make this an uiOutput and make this value to be euql to the size of the window?
+                                                     step = 10)
+                                      ),
+                                      
+                                      
+                                      actionButton(inputId = "go_bam_bigwig",
+                                                   label = "Generate profileplyr object", 
+                                                   icon("check"),
+                                                   class = "btn btn-primary"),
+                                      # option to download
+                                      uiOutput("download_bam_bigwig_bed")),
+                                    # 
+                                    # ###################################################
+                                    # # conditions if the user selects deepTools matrix
+                                    # ###################################################
+                                    conditionalPanel(
+                                      condition = "input.inputType == 'deepTools'",
+                                      fileInput(inputId = "deepTools_mat_upload",
+                                                label = "Upload deeptools matrix (output of computeMatrix):"),
+                                      # actionButton(inputId = "go_deepTools",
+                                      #              label = "Generate profileplyr object"),
+                                      
+                                      # the option to download the profileplyr object
+                                      uiOutput("download_deepTools")),
+                                    
+                                    ###################################################
+                                    # conditions if the user selects direct profileplyr object upload
+                                    ###################################################
+                                    conditionalPanel(
+                                      condition = "input.inputType == 'profileplyr'",
+                                      fileInput(inputId = "profileplyr_upload",
+                                                label = "Upload profileplyr object:")),
+                                    
+                                    #htmlOutput("object_headline"),
+                                    #verbatimTextOutput("proplyr_print"),
+                                    uiOutput("download_object_button_inputTab"),
+                                    uiOutput("clear_object"),
+                                    uiOutput("clear_warning"),
+                                    br(),
+                                    br(),
+                                    uiOutput("sample_table_input")
+                           ),
+                           
+                           tabPanel("Select/Annotate Samples",
+                                    uiOutput("download_object_button_selectTab"),
+                                    br(),
+                                    # htmlOutput("select_samples_message"),
+                                    # fluidRow(
+                                    #   column(4,
+                                    uiOutput("select_samples_box"),
+                                    # ),
+                                    # column(8,
+                                    uiOutput("new_sample_column_box"),
+                                    br(),
+                                    uiOutput("selected_samples_render_table")
+                                    # )
+                                    # )
+                           ),
+                           tabPanel("Manupulate Ranges",
+                                    uiOutput("download_object_button_manipulateTab"),
+                                    br(),
+                                    uiOutput("manipulate_render"),
+                                    br(),
+                                    fluidRow(
+                                      column(7,
+                                             (uiOutput("explore_ranges_render"))),
+                                      column(5,
+                                             (uiOutput("selected_samples_table_render_manipulate")))
+                                    )
+                                    
+                           ),
+                           tabPanel("Visualize",
+                                    fluidRow(
+                                      column(5,
+                                             uiOutput("download_object_button_visualizeTab"),
+                                             br(),
+                                             uiOutput("labeled_image"),
+                                             uiOutput("visualize_render_box1")),
+                                      column(7, 
+                                             uiOutput("selected_samples_table_render_visualize"),
+                                             uiOutput("visualize_render_box2"))
+                                    )
+                           )
                 )
 )
 
@@ -199,26 +216,72 @@ server <- function(input, output, session) {
   
   rv <- reactiveValues(proplyr = "No profileplyr object has been uploaded/generated")
   
+  output$numSignalFiles_ui_server <- renderUI({
+    numericInput(inputId = "numSignalFiles_server", 
+                 label = paste0("How many ", input$format, " files would you like to use?"), 
+                 value = 1, 
+                 min = 1, 
+                 step = 1)
+  })
+  
+  output$SignalFileUpload <- renderUI({
+    req(input$numSignalFiles_server)
+    signalFiles_upload <- as.list(1:input$numSignalFiles_server)
+    signalFiles_upload <- lapply(signalFiles_upload, function(i)
+    {
+      
+      fileInput(inputId = paste0("UploadSignalFile", i),
+                label = paste0("Select ", input$format," file # ", i),
+                multiple = FALSE
+                )
+      
+    })
+    
+  })
+  
+  output$numBedFiles_ui_server <- renderUI({
+    numericInput(inputId = "numBedFiles_server", 
+                 label = paste0("How many bed files would you like to use?"), 
+                 value = 1, 
+                 min = 1, 
+                 step = 1)
+  })
+  
+  output$BedFileUpload <- renderUI({
+    req(input$numBedFiles_server)
+    BedFiles_upload <- as.list(1:input$numBedFiles_server)
+    BedFiles_upload <- lapply(BedFiles_upload, function(i)
+    {
+      
+      fileInput(inputId = paste0("UploadBedFile", i),
+                label = paste0("Select bed file # ", i),
+                multiple = FALSE
+      )
+      
+    })
+    
+  })
+  
   output$numSignalFiles_ui <- renderUI({
-  numericInput(inputId = "numSignalFiles", 
-               label = paste0("How many ", input$format, " files would you like to use?"), 
-               value = 1, 
-               min = 1, 
-               step = 1)
+    numericInput(inputId = "numSignalFiles", 
+                 label = paste0("How many ", input$format, " files would you like to use?"), 
+                 value = 1, 
+                 min = 1, 
+                 step = 1)
   })
   
   output$SignalFilePathButton <- renderUI({
     req(input$numSignalFiles)
-      signalFiles_buttons <- as.list(1:input$numSignalFiles)
-      signalFiles_buttons <- lapply(signalFiles_buttons, function(i)
-      {
-        
-        shinyFilesButton(paste0("GetSignalFile", i),
+    signalFiles_buttons <- as.list(1:input$numSignalFiles)
+    signalFiles_buttons <- lapply(signalFiles_buttons, function(i)
+    {
+      
+      shinyFilesButton(paste0("GetSignalFile", i),
                        paste0("Select ", input$format," file # ", i),
                        title = "Please select a file:", multiple = FALSE,
                        class = "btn btn-primary")
-        
-      })
+      
+    })
     
   })
   
@@ -235,7 +298,7 @@ server <- function(input, output, session) {
       file_selected <-parseFilePaths(volumes, 
                                      input[[paste0(input_name, x)]])
       return(file_selected$datapath)
-  }
+    }
     
   }
   
@@ -257,6 +320,7 @@ server <- function(input, output, session) {
   #use the same function that we used to print the paths to the files to make a reactive value that contains a vector of paths
   signalFiles_paths <- reactive({
     req(input$numSignalFiles)
+    if(input$input_local_vs_server == "locally"){
       signalFiles_text2 <- as.list(1:input$numSignalFiles)
       signalFiles_text2 <- lapply(signalFiles_text2, function(i)
       {
@@ -265,6 +329,14 @@ server <- function(input, output, session) {
         
       })
       unlist(signalFiles_text2)
+    } else {
+      signalFiles_text2 <- as.list(1:input$numSignalFiles_server)
+      signalFiles_text2 <- lapply(signalFiles_text2, function(i)
+      {
+        input[[paste0("UploadSignalFile", i)]]$datapath
+      })
+      unlist(signalFiles_text2)
+    }
     
   })
   
@@ -279,56 +351,65 @@ server <- function(input, output, session) {
   
   output$BedFilePathButton <- renderUI({
     req(input$numBedFiles)
-      testRanges_buttons <- as.list(1:input$numBedFiles)
-      testRanges_buttons <- lapply(testRanges_buttons, function(i)
-      {
-        
-        shinyFilesButton(paste0("GetBedFile", i),
+    testRanges_buttons <- as.list(1:input$numBedFiles)
+    testRanges_buttons <- lapply(testRanges_buttons, function(i)
+    {
+      
+      shinyFilesButton(paste0("GetBedFile", i),
                        paste0("Select bed file # ", i),
                        title = "Please select a file:", multiple = FALSE,
                        #buttonType = "default", 
                        class = "btn btn-primary")
-        
-      })
+      
+    })
     
   })
   
   # render the paths just to the right of the links
   output$BedFilePathText <- renderUI({
     req(input$numBedFiles)
-      testRanges_text <- as.list(1:input$numBedFiles)
-      testRanges_text <- lapply(testRanges_text, function(i)
-      {
-        # use the function defined above to get the selected files
-        testRanges_files <- selected_files_function(input_name = "GetBedFile", x = i)
-        if (!is.null(testRanges_files)){
-          renderText(paste0("bed file ", i, ": ", as.character(testRanges_files)))
-        }
-      })
+    testRanges_text <- as.list(1:input$numBedFiles)
+    testRanges_text <- lapply(testRanges_text, function(i)
+    {
+      # use the function defined above to get the selected files
+      testRanges_files <- selected_files_function(input_name = "GetBedFile", x = i)
+      if (!is.null(testRanges_files)){
+        renderText(paste0("bed file ", i, ": ", as.character(testRanges_files)))
+      }
+    })
     
   })
   
   #use the same function that we used to print the paths to the files to make a reactive value that contains a vector of paths
   testRanges_paths <- reactive({
     req(input$numBedFiles)
-      testRanges_text2 <- as.list(1:input$numBedFiles)
+    if(input$input_local_vs_server == "locally"){
+    testRanges_text2 <- as.list(1:input$numBedFiles)
+    testRanges_text2 <- lapply(testRanges_text2, function(i)
+    {
+      # use the function defined above to get the selected files
+      selected_files_function(input_name = "GetBedFile", x = i)
+      
+    })
+    unlist(testRanges_text2)
+    } else {
+      testRanges_text2 <- as.list(1:input$numBedFiles_server)
       testRanges_text2 <- lapply(testRanges_text2, function(i)
       {
-        # use the function defined above to get the selected files
-        selected_files_function(input_name = "GetBedFile", x = i)
-        
+        input[[paste0("UploadBedFile", i)]]$datapath
       })
       unlist(testRanges_text2)
+    }
     
   }) 
   
   output$labeled_image <- renderUI({
     if(is(rv$proplyr, "profileplyr")) {
       wellPanel(
-      tags$h4("Example range heatmap:"),
-      img(src=rv$labeled_image,
-          height = "100%",
-          width = "100%")
+        tags$h4("Example range heatmap:"),
+        img(src=rv$labeled_image,
+            height = "100%",
+            width = "100%")
       )
     }
   })
@@ -352,7 +433,7 @@ server <- function(input, output, session) {
                     #label = "",
                     multiple = TRUE 
                     #selectize = TRUE
-                    ), 
+        ), 
         actionButton("select_samples_action" ,"Select samples", 
                      icon("check"),
                      class = "btn btn-primary")
@@ -363,25 +444,25 @@ server <- function(input, output, session) {
     }
   })
   
-
+  
   
   output$new_sample_column_box <- renderUI({
     if(is(rv$proplyr, "profileplyr")) {
       fluidRow(
-               wellPanel(
-                 checkboxInput(inputId = "new_sample_column_query",
-                               label = HTML("<b>Click to add a column to the sample metadata below. This information can be used for grouping samples during visualization (e.g. with colors).<b>"),
-                               value = 0)),
-               conditionalPanel(
-                 condition = "input.new_sample_column_query != 0",
-                 column(6, uiOutput("column_name")),
-                 column(6,
-                        htmlOutput("new_sample_column_render_title"),
-                        uiOutput("new_sample_column_render"),
-                        uiOutput("add_sample_column_button")
-                 )
-               )
+        wellPanel(
+          checkboxInput(inputId = "new_sample_column_query",
+                        label = HTML("<b>Click to add a column to the sample metadata below. This information can be used for grouping samples during visualization (e.g. with colors).<b>"),
+                        value = 0)),
+        conditionalPanel(
+          condition = "input.new_sample_column_query != 0",
+          column(6, uiOutput("column_name")),
+          column(6,
+                 htmlOutput("new_sample_column_render_title"),
+                 uiOutput("new_sample_column_render"),
+                 uiOutput("add_sample_column_button")
+          )
         )
+      )
     }
   })
   
@@ -412,11 +493,11 @@ server <- function(input, output, session) {
     if(is(rv$proplyr, "profileplyr")) {
       wellPanel(
         htmlOutput("selected_samples_table_title"),
-          DT::dataTableOutput("selected_samples_table")
-        )
+        DT::dataTableOutput("selected_samples_table")
+      )
     } 
   })
-
+  
   output$select_samples_message <- renderText("<b> After selecting the rows of the samples you want to use for this analysis from the table on the left, click the 'Select samples' button and samples shown in the table on the right are those that will be used for any subsequent analysis. To revert back to the original samples, just click the 'Select samples' button with no rows highlighted in the table above. <b>")
   
   output$selected_samples_table_render_manipulate <- renderUI({
@@ -585,7 +666,7 @@ server <- function(input, output, session) {
     } else {
       htmlOutput("no_object_message_manipulate")
     }
-
+    
   })
   
   
@@ -593,8 +674,8 @@ server <- function(input, output, session) {
     if(is(rv$proplyr, "profileplyr")) {
       wellPanel(
         tags$h4("Currently selected samples for visualization:"),
-          #htmlOutput("selected_samples_table_visualize_title"),
-          DT::dataTableOutput("selected_samples_table_visualize")
+        #htmlOutput("selected_samples_table_visualize_title"),
+        DT::dataTableOutput("selected_samples_table_visualize")
       )
     } 
   })
@@ -625,24 +706,24 @@ server <- function(input, output, session) {
                         multiple = TRUE),
             tags$p("NOTE: if this is left blank, mean signal across all samples will be used to sort. This is the default setting.")
           ),
-            conditionalPanel(
-              condition = "input.sort_by_mean_or_column == 'metadata_column'",
-              selectInput(inputId = "sort_by_metadata_column",
-                          label = "Which range metadata column should be used for sorting:",
-                          choices = c("", colnames(mcols(rv$proplyr))),
-                          multiple = FALSE
-              ),
-              radioButtons(inputId = "increasing_or_decreasing",
-                           label = "Should the values of the column be put in increasing or decreasing order (for either categorical or numeric values)?",
-                           choices = c("increasing order" = FALSE,
-                                       "decreasing order" = TRUE)),
-              br()
-            )
+          conditionalPanel(
+            condition = "input.sort_by_mean_or_column == 'metadata_column'",
+            selectInput(inputId = "sort_by_metadata_column",
+                        label = "Which range metadata column should be used for sorting:",
+                        choices = c("", colnames(mcols(rv$proplyr))),
+                        multiple = FALSE
+            ),
+            radioButtons(inputId = "increasing_or_decreasing",
+                         label = "Should the values of the column be put in increasing or decreasing order (for either categorical or numeric values)?",
+                         choices = c("increasing order" = FALSE,
+                                     "decreasing order" = TRUE)),
+            br()
+          )
         ),
         #tags$h4("2) Modify Sample names at the top of each heatmap"),
         #tags$h5("Change the sample names (i.e. the labels on top of each main heatmap):"),
         checkboxInput(inputId = "sample_names_option",
-                        label = HTML("<b>Change and customize sample names (i.e. the labels on top of each main heatmap)<b>")),
+                      label = HTML("<b>Change and customize sample names (i.e. the labels on top of each main heatmap)<b>")),
         conditionalPanel(
           condition = "input.sample_names_option != 0",
           numericInput(inputId = "sample_label_fontsize_entry",
@@ -665,43 +746,43 @@ server <- function(input, output, session) {
                       label = HTML("<b>Customize the colors of the main heatmaps<b>")),
         conditionalPanel(
           condition = "input.heatmap_colors_option != 0",
-        
-        radioButtons(inputId = "individual_or_group_colors",
-                     label = "Do you want to specify colors for each individual heatmap, or color them by sample grouping?",
-                     choices = c("Color by individual heatmap (default)" = "individual",
-                                 "Color by sample groups" = "sample_groups") 
-                     #selected = character(0)
-        ),
-        conditionalPanel(
-          condition = "input.individual_or_group_colors == 'individual'",
-          tags$b("Enter two or three colors separated by commas for each sample heatmap:"),
-          br(),
-          br(),
-          uiOutput("matrices_color_individual")
-        ),
-        conditionalPanel(
-          condition = "input.individual_or_group_colors == 'sample_groups'",
-          uiOutput("sample_column_for_colors"),
-          br(),
-          tags$b("Enter two or three colors separated by commas for each sample group:"),
-          br(),
-          br(),
-          uiOutput("user_group_colors")
-        ),
-        #tags$h5("Should the colors for the range heatmap all have a common scale, or should they be scaled individually?"),
-        radioButtons(inputId = "all_color_scales_equal",
-                     label = "Should the colors for the range heatmap all have a common scale, or should they be scaled individually?",
-                     choices = c("same scale" = TRUE,
-                                 "individual scales" = FALSE),
-                     inline = TRUE),
-        conditionalPanel(
-          condition = "input.all_color_scales_equal == 'FALSE'",
-          uiOutput("legend_show_select_notEqual_render")
-        ),
-        conditionalPanel(
-          condition = "input.all_color_scales_equal == 'TRUE'",
-          uiOutput("legend_show_select_equal_render")
-        )
+          
+          radioButtons(inputId = "individual_or_group_colors",
+                       label = "Do you want to specify colors for each individual heatmap, or color them by sample grouping?",
+                       choices = c("Color by individual heatmap (default)" = "individual",
+                                   "Color by sample groups" = "sample_groups") 
+                       #selected = character(0)
+          ),
+          conditionalPanel(
+            condition = "input.individual_or_group_colors == 'individual'",
+            tags$b("Enter two or three colors separated by commas for each sample heatmap:"),
+            br(),
+            br(),
+            uiOutput("matrices_color_individual")
+          ),
+          conditionalPanel(
+            condition = "input.individual_or_group_colors == 'sample_groups'",
+            uiOutput("sample_column_for_colors"),
+            br(),
+            tags$b("Enter two or three colors separated by commas for each sample group:"),
+            br(),
+            br(),
+            uiOutput("user_group_colors")
+          ),
+          #tags$h5("Should the colors for the range heatmap all have a common scale, or should they be scaled individually?"),
+          radioButtons(inputId = "all_color_scales_equal",
+                       label = "Should the colors for the range heatmap all have a common scale, or should they be scaled individually?",
+                       choices = c("same scale" = TRUE,
+                                   "individual scales" = FALSE),
+                       inline = TRUE),
+          conditionalPanel(
+            condition = "input.all_color_scales_equal == 'FALSE'",
+            uiOutput("legend_show_select_notEqual_render")
+          ),
+          conditionalPanel(
+            condition = "input.all_color_scales_equal == 'TRUE'",
+            uiOutput("legend_show_select_equal_render")
+          )
         ),
         
         #tags$h4("3) Range/row grouping parameters:"),
@@ -712,58 +793,58 @@ server <- function(input, output, session) {
         ),
         conditionalPanel(
           condition = "input.range_grouping_option != 0",
-        
-        selectInput(inputId = "columns_for_groups_dropdown",
-                    label = "Enter the name of the column from the range metadata to be used for grouping",
-                    choices = colnames(mcols(rv$proplyr)),
-                    selected = params(rv$proplyr)$rowGroupsInUse),
-        br(),
-        #tags$h5("Do you want to include group annotation on left side of heatmaps?"),
-        radioButtons(inputId = "include_group_annotation",
-                     label = "Do you want to include group annotation on left side of heatmaps?",
-                     choices = c("include" = TRUE,
-                                 "don't include" = FALSE),
-                     inline = TRUE),
-        conditionalPanel(
-          condition = "input.include_group_annotation == 'TRUE'",
-          # tags$h5("Set the paratmeters of the group annotation labels:"),
-          numericInput(inputId = "group_anno_width_entry",
-                       label = "Width of the group annotations (in mm):",
-                       min = 1, 
-                       max = 50,
-                       step = 1,
-                       value = 3)
-        ),
-        br(),
-        conditionalPanel(
-          condition = "input.include_group_annotation == 'TRUE'",
-          tags$b("Set the paratmeters of the group annotation labels:"),
-          numericInput(inputId = "group_anno_label_fontsize_entry",
-                       label = "Font size of group labels:",
-                       min = 1, 
-                       max = 50,
-                       step = 1,
-                       value = 10),
-          radioButtons(inputId = "group_anno_label_fontface_entry",
-                       label = "Font type of group labels",
-                       choices = c("plain text" = "plain",
-                                   "bold" = "bold"),
-                       inline = TRUE,
-                       selected = "bold") 
-        ),
-        br(),
-        conditionalPanel(
-          condition = "input.include_group_annotation == 'TRUE'",
-          tags$b("Customize colors of group annotations:"),
-          checkboxInput(inputId = "group_color_query",
-                        label = "Click to change the colors of the group annotation panel",
-                        value = 0)
-        ),
-        conditionalPanel(
-          condition = "input.group_color_query != 0",
-          uiOutput("group_color")
-        ),
-        br()
+          
+          selectInput(inputId = "columns_for_groups_dropdown",
+                      label = "Enter the name of the column from the range metadata to be used for grouping",
+                      choices = colnames(mcols(rv$proplyr)),
+                      selected = params(rv$proplyr)$rowGroupsInUse),
+          br(),
+          #tags$h5("Do you want to include group annotation on left side of heatmaps?"),
+          radioButtons(inputId = "include_group_annotation",
+                       label = "Do you want to include group annotation on left side of heatmaps?",
+                       choices = c("include" = TRUE,
+                                   "don't include" = FALSE),
+                       inline = TRUE),
+          conditionalPanel(
+            condition = "input.include_group_annotation == 'TRUE'",
+            # tags$h5("Set the paratmeters of the group annotation labels:"),
+            numericInput(inputId = "group_anno_width_entry",
+                         label = "Width of the group annotations (in mm):",
+                         min = 1, 
+                         max = 50,
+                         step = 1,
+                         value = 3)
+          ),
+          br(),
+          conditionalPanel(
+            condition = "input.include_group_annotation == 'TRUE'",
+            tags$b("Set the paratmeters of the group annotation labels:"),
+            numericInput(inputId = "group_anno_label_fontsize_entry",
+                         label = "Font size of group labels:",
+                         min = 1, 
+                         max = 50,
+                         step = 1,
+                         value = 10),
+            radioButtons(inputId = "group_anno_label_fontface_entry",
+                         label = "Font type of group labels",
+                         choices = c("plain text" = "plain",
+                                     "bold" = "bold"),
+                         inline = TRUE,
+                         selected = "bold") 
+          ),
+          br(),
+          conditionalPanel(
+            condition = "input.include_group_annotation == 'TRUE'",
+            tags$b("Customize colors of group annotations:"),
+            checkboxInput(inputId = "group_color_query",
+                          label = "Click to change the colors of the group annotation panel",
+                          value = 0)
+          ),
+          conditionalPanel(
+            condition = "input.group_color_query != 0",
+            uiOutput("group_color")
+          ),
+          br()
         ),
         #tags$h4("4) Set the parameters of the signal line plots on the top of each sample heatmap"),
         checkboxInput(inputId = "signal_plots_option",
@@ -823,7 +904,7 @@ server <- function(input, output, session) {
         uiOutput("genes_to_label_direct_or_upload_render"),
         uiOutput("direct_type_inputbox_render"),
         uiOutput("genes_to_label_fontsize")
-
+        
       )
       
     }
@@ -843,7 +924,7 @@ server <- function(input, output, session) {
       rv$labeled_image <- "labeled_figure_for_app_extra_anno.png"
     } 
   })
-
+  
   observe({
     req(input$sample_names_option)
     if(input$sample_names_option != 0){
@@ -974,37 +1055,37 @@ server <- function(input, output, session) {
                  })
   })
   
-
+  
   # read in from deeptools
   from_deepTools <- observeEvent(input$deepTools_mat_upload, {
     withProgress(message = 'Action in progress',
                  value = 0.5, {
-      file <- input$deepTools_mat_upload
-      rv$proplyr <- rv$proplyr_original <- import_deepToolsMat(file$datapath)
-    })
+                   file <- input$deepTools_mat_upload
+                   rv$proplyr <- rv$proplyr_original <- import_deepToolsMat(file$datapath)
+                 })
   })
   
   
   ## read in from profileplyr object upload
   from_direct_file <- observeEvent(input$profileplyr_upload, {
-      file <- input$profileplyr_upload
-      rv$proplyr <- rv$proplyr_original <- readRDS(file$datapath)
-
+    file <- input$profileplyr_upload
+    rv$proplyr <- rv$proplyr_original <- readRDS(file$datapath)
+    
   })
   
   # print object to screen if through direct upload
   output$proplyr_print <- renderPrint({
-
-      rv$proplyr
-
+    
+    rv$proplyr
+    
   })
- 
+  
   output$download_object_button_inputTab <- renderUI({
     if(is(rv$proplyr, "profileplyr")) {
       downloadButton("download_object_inputTab", "Download current profileplyr object")
     }
   })
-
+  
   output$download_object_button_selectTab <- renderUI({
     if(is(rv$proplyr, "profileplyr")) {
       downloadButton("download_object_selectTab", "Download current profileplyr object")
@@ -1031,14 +1112,14 @@ server <- function(input, output, session) {
   })
   
   output$download_object_inputTab <- downloadHandler(
-      filename = function() {
-        paste("proplyrObject", "_",Sys.time(),".RData",sep="")
-      },
-      content = function(file) {
-        saveRDS(rv$proplyr, file)
-      }
+    filename = function() {
+      paste("proplyrObject", "_",Sys.time(),".RData",sep="")
+    },
+    content = function(file) {
+      saveRDS(rv$proplyr, file)
+    }
   )
-
+  
   output$download_object_selectTab <- downloadHandler(
     filename = function() {
       paste("proplyrObject", "_",Sys.time(),".RData",sep="")
@@ -1047,7 +1128,7 @@ server <- function(input, output, session) {
       saveRDS(rv$proplyr, file)
     }
   )
-
+  
   output$download_object_manipulateTab <- downloadHandler(
     filename = function() {
       paste("proplyrObject", "_",Sys.time(),".RData",sep="")
@@ -1080,14 +1161,14 @@ server <- function(input, output, session) {
                    label = "Clear current profileplyr object")
     }
   })
-
-
+  
+  
   output$clear_warning <- renderText({
     if(is(rv$proplyr, "profileplyr")){
       "Warning: make sure you download object before clearing if you want to keep this object for further analysis! It will be much faster to load the RData file as opposed to starting from BAM/bigwig files in the future. Not necessary to download if starting from RData file already."
     }
   })
-
+  
   observeEvent(input$clear_object_button, {
     rv$proplyr <- "No profileplyr object has been uploaded/generated"
     rv$proplyr_original <- NULL
@@ -1097,11 +1178,11 @@ server <- function(input, output, session) {
     rv$row_select_index <- NULL
   })
   
-
+  
   output$sample_table_input <- renderUI({
     if(is(rv$proplyr, "profileplyr")) {
       box(DT::dataTableOutput("sample_table"),
-       title = "Samples from imported data:",
+          title = "Samples from imported data:",
           width = 12,
           solidHeader = TRUE,
           status = "primary")
@@ -1115,8 +1196,8 @@ server <- function(input, output, session) {
       as.data.frame() %>%
       dplyr::select(sample_labels)
   })
-
-
+  
+  
   # create list of entries for new column 
   add_to_sampleData <- observeEvent(input$add_sample_column_yes, {
     numSamples <- length(assays(rv$proplyr))
@@ -1137,7 +1218,7 @@ server <- function(input, output, session) {
                   options = list(pageLength = 10,
                                  scrollX = TRUE))
   })
-
+  
   output$select_sample_table <- DT::renderDataTable({
     DT::datatable(rv$sampleData_original, 
                   options = list(pageLength = 10,
@@ -1151,7 +1232,7 @@ server <- function(input, output, session) {
       rv$row_select_index <- seq(nrow(sampleData(rv$proplyr_original)))
     }
   })
- 
+  
   update_proplyr_after_index <- observeEvent(rv$row_select_index, {
     rv$proplyr <- rv$proplyr_original[, ,rv$row_select_index]
     rv$sampleData_active_subset <- sampleData(rv$proplyr) %>%
@@ -1164,8 +1245,8 @@ server <- function(input, output, session) {
                   options = list(pageLength = 10,
                                  scrollX = TRUE),
                   selection = "none") 
-    })
-
+  })
+  
   output$selected_samples_table_manipulate <- DT::renderDataTable({
     DT::datatable(rv$sampleData_active_subset, 
                   options = list(pageLength = 10,
@@ -1193,7 +1274,7 @@ server <- function(input, output, session) {
   })
   
   
-
+  
   # set parameters for generateEnrichedHeatmap()
   
   samples_to_sortby <- reactive ({
@@ -1218,7 +1299,7 @@ server <- function(input, output, session) {
   change_sort_column <- observeEvent(input$MakeEnrichedHeatmap, {
     if(input$sort_by_mean_or_column == "metadata_column"){
       if(!(input$sort_by_metadata_column == "")) {
-          rv$proplyr <- orderBy(rv$proplyr, column = input$sort_by_metadata_column)
+        rv$proplyr <- orderBy(rv$proplyr, column = input$sort_by_metadata_column)
       } else {
         rv$proplyr <- orderBy(rv$proplyr, column = NULL)
       }
@@ -1228,7 +1309,7 @@ server <- function(input, output, session) {
   decreasing <- reactive({
     input$increasing_or_decreasing
   })
-
+  
   
   include_group_annotation <- reactive({
     input$include_group_annotation
@@ -1237,7 +1318,7 @@ server <- function(input, output, session) {
   all_color_scales_equal <- reactive({
     input$all_color_scales_equal
   })
-
+  
   color_by_sample_group <- reactive({
     if (input$individual_or_group_colors == "sample_groups") {
       return(input$select_sample_column_for_colors)
@@ -1263,7 +1344,7 @@ server <- function(input, output, session) {
                 value = colors[i])
     })
   })
-
+  
   group_color_new <- reactive({
     groupLevels <- mcols(rv$proplyr) %>%
       .[, colnames(.) %in% params(rv$proplyr)$rowGroupsInUse] %>%
@@ -1296,7 +1377,7 @@ server <- function(input, output, session) {
                 value = rownames(sampleData(rv$proplyr))[i])
     })
   })
-
+  
   # create list of names user enters, or sets to default names if user unclicks the box
   sample_names_new <- reactive({
     numSamples <- length(assays(rv$proplyr))
@@ -1378,7 +1459,7 @@ server <- function(input, output, session) {
   rv$individual_or_group_colors <- "default"
   
   observe({
-
+    
     req(input$individual_or_group_colors)
     req(input$matrices_color_list1)
     temp <- list()
@@ -1405,9 +1486,9 @@ server <- function(input, output, session) {
         .[, colnames(.) %in% input$select_sample_column_for_colors] %>%
         as.factor() %>%
         levels()
-
+      
       numGroups <- length(column_levels)
-
+      
       for(i in seq(numGroups)){
         temp[[i]] <- input[[paste0("matrices_color_groups_list", i)]]
         temp[[i]] <- strsplit(temp[[i]], split = ",") %>%
@@ -1416,12 +1497,12 @@ server <- function(input, output, session) {
       }
       rv$individual_or_group_colors <- temp
     }
-
+    
   })
-
+  
   matrices_color_new <- reactive({
     if( rv$individual_or_group_colors %in% "default"){
-       NULL
+      NULL
     } else {
       rv$individual_or_group_colors
     }
@@ -1438,9 +1519,9 @@ server <- function(input, output, session) {
   
   output$extra_anno_width_query <- renderUI ({
     if (!is.null(input$extra_annotation_columns_input)) {
-    checkboxInput(inputId = "extra_anno_width_yes",
-                  label = "Click to change the width of the extra annotation columns",
-                  value = 0)
+      checkboxInput(inputId = "extra_anno_width_yes",
+                    label = "Click to change the width of the extra annotation columns",
+                    value = 0)
     }
   })
   
@@ -1485,7 +1566,7 @@ server <- function(input, output, session) {
                     label = "Click to change the colors of the extra annotation columns",
                     value = 0)
       # numExtra <- length(input$extra_annotation_columns_input)
-
+      
     }
   })
   
@@ -1528,8 +1609,8 @@ server <- function(input, output, session) {
                 textInput(inputId =  paste0(input$extra_annotation_columns_input[i], "_", level_names[x]),
                           label = paste0("level = ", level_names[x]))
               }
-
-          })
+              
+            })
           }
         })
       )
@@ -1542,7 +1623,7 @@ server <- function(input, output, session) {
     color_list <- vector(mode = "list", 
                          length = numExtra)
     
-
+    
     if (!is.null(input$extra_annotation_columns_input)){ 
       for (i in seq(numExtra)){
         column <- mcols(rv$proplyr)[colnames(mcols(rv$proplyr)) %in% input$extra_annotation_columns_input[i]][,1]
@@ -1552,7 +1633,7 @@ server <- function(input, output, session) {
           class <- "factor"
           level_names <- levels(column)
           numLevels <- length(level_names)
-   
+          
           # make default color vector to pull from
           colors <- palette()
           while(length(colors) < numLevels){
@@ -1600,39 +1681,39 @@ server <- function(input, output, session) {
         group_sub[[i]] <- scoreMat[(group_boundaries[i]+1):group_boundaries[i+1], ]
       }
     }
-      
-      # get the max and min col mean accounting for groups
-      col_means <- vector(mode = "list", length = length(group_sub))
-      for (i in seq_along(group_sub)){
-        col_means[[i]] <- colMeans(group_sub[[i]])
-      }
-      col_means_unlist <- unlist(col_means)
-      
-      col_means_max <- max(col_means_unlist)
-      # get the value for which this would be 90% to giv esome room in the figure
-      max_for_figure = col_means_max/0.8
-      
-      col_means_min <- min(col_means_unlist)
+    
+    # get the max and min col mean accounting for groups
+    col_means <- vector(mode = "list", length = length(group_sub))
+    for (i in seq_along(group_sub)){
+      col_means[[i]] <- colMeans(group_sub[[i]])
+    }
+    col_means_unlist <- unlist(col_means)
+    
+    col_means_max <- max(col_means_unlist)
+    # get the value for which this would be 90% to giv esome room in the figure
+    max_for_figure = col_means_max/0.8
+    
+    col_means_min <- min(col_means_unlist)
+    min_for_figure <- col_means_min/0.8
+    
+    if (min_for_figure < 0){
       min_for_figure <- col_means_min/0.8
-      
-      if (min_for_figure < 0){
-        min_for_figure <- col_means_min/0.8
-      }else {
-        min_for_figure <- 0
-      }
-      
-      lapply(1:numSamples, function(i) {
-        sliderInput(inputId = paste0("ylim_list", i),
-                    label = paste0("Y-limits for Heatmap ", i),
-                    min = min_for_figure,
-                    max = max_for_figure,
-                    value = c(min_for_figure, max_for_figure))})
-    })
+    }else {
+      min_for_figure <- 0
+    }
+    
+    lapply(1:numSamples, function(i) {
+      sliderInput(inputId = paste0("ylim_list", i),
+                  label = paste0("Y-limits for Heatmap ", i),
+                  min = min_for_figure,
+                  max = max_for_figure,
+                  value = c(min_for_figure, max_for_figure))})
+  })
   
   output$ylim_group_column <- renderUI({
-      selectInput(inputId = "ylim_group_column_name",
-                  label = "Select the name of the column from the sample metadata to be used for ylim grouping:",
-                  choices = sampleData_colnames())
+    selectInput(inputId = "ylim_group_column_name",
+                label = "Select the name of the column from the sample metadata to be used for ylim grouping:",
+                choices = sampleData_colnames())
   })
   
   # when the button to make the enrichedheatmap is pressed, the ranges from the sliders will be taken into account
@@ -1668,7 +1749,7 @@ server <- function(input, output, session) {
     }# will default to NULL (inferred) if it gets past these if statements
     
   })
-
+  
   top_anno_height <- reactive ({
     input$top_anno_height_entry
   })
@@ -1705,10 +1786,10 @@ server <- function(input, output, session) {
   
   output$legend_show_select_equal_render <- renderUI({
     radioButtons(inputId = "legend_show_equal_select",
-                       label = "Do you want to show the legend for the heatmap color scales?",
-                       choices = c("yes" = TRUE,
-                                   "no" = FALSE)
-                 )
+                 label = "Do you want to show the legend for the heatmap color scales?",
+                 choices = c("yes" = TRUE,
+                             "no" = FALSE)
+    )
   })
   
   # this got pretty complicated for me, it throws an error if it runs the cde and the variables inside the iff statment are not defined yet
@@ -1800,7 +1881,7 @@ server <- function(input, output, session) {
       unlist() %>%
       trimws()
   })
-
+  
   genes_to_label_local <- eventReactive(rv$genes_to_label, {
     if(rv$genes_to_label %in% "default"){
       NULL
@@ -1808,14 +1889,14 @@ server <- function(input, output, session) {
       rv$genes_to_label
     }
   })
-
+  
   observeEvent(input$MakeEnrichedHeatmap, {
     req(input$genes_to_label_option)
     rv$genes_to_label <- strsplit(input$direct_type_inputbox, split = ",|\ ") %>%
       unlist() %>%
       trimws()
   })
-
+  
   genes_to_label <- eventReactive(rv$genes_to_label, {
     if(rv$genes_to_label %in% "default"){
       NULL
@@ -1823,7 +1904,7 @@ server <- function(input, output, session) {
       rv$genes_to_label
     }
   })
-
+  
   # genes_to_label <- eventReactive(input$MakeEnrichedHeatmap, {
   #   #req(input$direct_type_inputbox)
   #   strsplit(input$direct_type_inputbox, split = ",|\ ") %>%
@@ -1860,7 +1941,7 @@ server <- function(input, output, session) {
   #   
   # }
   
- 
+  
   #make heatmap in 'Visualize' tab for direct file upload
   makeHeatmap <- observeEvent(input$MakeEnrichedHeatmap, {
     withProgress(message = 'Action in progress',
@@ -1894,13 +1975,14 @@ server <- function(input, output, session) {
                    # dev.off()
                  })
   })
-
+  
   pdf(NULL)
+  dev.off()
   output$EnrichedHeatmap <- renderPlot({
-     rv$heatmap
+    rv$heatmap
   })
   
- 
+  
   options(shiny.usecairo=TRUE)
   makeHeatmap_local <- observeEvent(input$MakeEnrichedHeatmap_local, {
     withProgress(message = 'Action in progress',
@@ -1908,50 +1990,50 @@ server <- function(input, output, session) {
                    file = input$heatmap_path_local
                    cairo_pdf(filename = file)
                    rv$heatmap_local <- generateEnrichedHeatmap(object = rv$proplyr,
-                                                         extra_annotation_columns = unlist(extra_annotation_columns()),
-                                                         extra_anno_color = extra_anno_color_input(),
-                                                         extra_anno_width = unlist(extra_anno_width_input()),
-                                                         include_group_annotation = include_group_annotation(),
-                                                         group_anno_color = unlist(group_color_new()),
-                                                         group_anno_row_title_gp = gpar(fontsize = group_anno_label_fontsize(),
-                                                                                        fontface = group_anno_label_fontface()),
-                                                         group_anno_width = group_anno_width(),
-                                                         sample_names = unlist(sample_names_new()),
-                                                         ylim = ylim_new_local(),
-                                                         color_by_sample_group = color_by_sample_group(),
-                                                         matrices_color = matrices_color_new(),
-                                                         all_color_scales_equal = all_color_scales_equal(),
-                                                         top_anno_height = unit(top_anno_height(), "cm"),
-                                                         top_anno_axis_font = gpar(fontsize = top_anno_axis_font()),
-                                                         matrices_column_title_gp = gpar(fontsize = sample_label_fontsize(),
-                                                                                         fontface = sample_label_fontface()),
-                                                         samples_to_sortby = samples_to_sortby(),
-                                                         show_heatmap_legend  = show_heatmap_legend(),
-                                                         genes_to_label = genes_to_label_local(),
-                                                         gene_label_font_size = genes_to_label_fontsize_input()
+                                                               extra_annotation_columns = unlist(extra_annotation_columns()),
+                                                               extra_anno_color = extra_anno_color_input(),
+                                                               extra_anno_width = unlist(extra_anno_width_input()),
+                                                               include_group_annotation = include_group_annotation(),
+                                                               group_anno_color = unlist(group_color_new()),
+                                                               group_anno_row_title_gp = gpar(fontsize = group_anno_label_fontsize(),
+                                                                                              fontface = group_anno_label_fontface()),
+                                                               group_anno_width = group_anno_width(),
+                                                               sample_names = unlist(sample_names_new()),
+                                                               ylim = ylim_new_local(),
+                                                               color_by_sample_group = color_by_sample_group(),
+                                                               matrices_color = matrices_color_new(),
+                                                               all_color_scales_equal = all_color_scales_equal(),
+                                                               top_anno_height = unit(top_anno_height(), "cm"),
+                                                               top_anno_axis_font = gpar(fontsize = top_anno_axis_font()),
+                                                               matrices_column_title_gp = gpar(fontsize = sample_label_fontsize(),
+                                                                                               fontface = sample_label_fontface()),
+                                                               samples_to_sortby = samples_to_sortby(),
+                                                               show_heatmap_legend  = show_heatmap_legend(),
+                                                               genes_to_label = genes_to_label_local(),
+                                                               gene_label_font_size = genes_to_label_fontsize_input()
                    )
                    dev.off()
                  })
   })
-
-
-
+  
+  
+  
   output$EnrichedHeatmap_local <- renderPlot(
-     rv$heatmap_local
+    rv$heatmap_local
   )
-
-
+  
+  
   
   
   options(shiny.usecairo=TRUE)
   output$download_heatmap <- downloadHandler(
     filename = function(){
       paste("heatmap", "_",Sys.time(),".pdf",sep="")
-      },
+    },
     content = function(file) {
       # temp_file <- file.path(tempdir(), "heatmap_test_ddd.pdf")
       # file.copy("heatmap_test_ddd.pdf", temp_file, overwrite = TRUE)
-
+      
       #pdf(file)
       cairo_pdf(filename = file)
       generateEnrichedHeatmap(object = rv$proplyr,
@@ -1961,7 +2043,7 @@ server <- function(input, output, session) {
                               include_group_annotation = include_group_annotation(),
                               group_anno_color = unlist(group_color_new()),
                               group_anno_row_title_gp = gpar(fontsize = group_anno_label_fontsize(),
-                                                              fontface = group_anno_label_fontface()),
+                                                             fontface = group_anno_label_fontface()),
                               group_anno_width = group_anno_width(),
                               sample_names = unlist(sample_names_new()),
                               ylim = ylim_new(),
@@ -1977,15 +2059,15 @@ server <- function(input, output, session) {
                               genes_to_label = genes_to_label(),
                               gene_label_font_size = genes_to_label_fontsize_input()
       )
-     
+      
       dev.off()
     },
     contentType = "application/pdf"
-
-    )
-
-
- 
+    
+  )
+  
+  
+  
   ############
   # range manipulation
   ############
@@ -2006,13 +2088,13 @@ server <- function(input, output, session) {
   
   make_GRanges <- observeEvent(input$granges, {
     rv$granges <- lapply(input$granges$datapath, 
-                       import.bed)
+                         import.bed)
     
     rv$granges <- GRangesList(rv$granges)
     
   })
-
-    
+  
+  
   include_nonoverlapping_granges <- reactive({
     include_nonoverlapping_granges = input$include_nonoverlapping_granges
   })
@@ -2032,9 +2114,9 @@ server <- function(input, output, session) {
   granges_names_new <- reactive({
     numBedFiles <- length(input$granges$name)
     temp <- list()
-      for(i in seq(numBedFiles)){
-        temp[[i]] <- input[[paste0("granges_names_list", i)]]
-      }
+    for(i in seq(numBedFiles)){
+      temp[[i]] <- input[[paste0("granges_names_list", i)]]
+    }
     temp
   })
   
@@ -2050,7 +2132,7 @@ server <- function(input, output, session) {
   }, ignoreInit = TRUE)
   
   ##### groupBy gene list
-
+  
   output$gene_list_uploaded <- reactive({
     return(!is.null(input$gene_list))
   })
@@ -2093,7 +2175,7 @@ server <- function(input, output, session) {
     unlist(temp)
   })
   
-
+  
   groupby_gene_list_go <- observeEvent(input$perform_groupby_genes, {
     withProgress(message = 'Action in progress',
                  value = 0.5, {
@@ -2114,39 +2196,39 @@ server <- function(input, output, session) {
       kmeans_k = NULL
     }
   })
-    
-    cutree_rows <- reactive({
-      if(input$cluster_method == "hclust"){
-        cutree_rows = input$cluster_number
-      } else{
-        cutree_rows = NULL
-      }
-
-      })
-
-    cluster <- observeEvent(input$perform_cluster, {
-      withProgress(message = 'Action in progress',
-                   value = 0.5, {
-                     set.seed(0)
-                     rv$proplyr <- clusterRanges(rv$proplyr,
-                                                 fun = "rowMeans",
-                                                 kmeans_k = kmeans_k(),
-                                                 cutree_rows = cutree_rows())
-                   })
-      
-    }, ignoreInit = TRUE)
   
-
+  cutree_rows <- reactive({
+    if(input$cluster_method == "hclust"){
+      cutree_rows = input$cluster_number
+    } else{
+      cutree_rows = NULL
+    }
+    
+  })
+  
+  cluster <- observeEvent(input$perform_cluster, {
+    withProgress(message = 'Action in progress',
+                 value = 0.5, {
+                   set.seed(0)
+                   rv$proplyr <- clusterRanges(rv$proplyr,
+                                               fun = "rowMeans",
+                                               kmeans_k = kmeans_k(),
+                                               cutree_rows = cutree_rows())
+                 })
+    
+  }, ignoreInit = TRUE)
+  
+  
   ##### annotate with chipseeker
   annotate_cs <- observeEvent(input$perform_annotate_cs, {
     withProgress(message = 'Action in progress',
                  value = 0.5, {
-        rv$proplyr <- annotateRanges(rv$proplyr,
-                                     TxDb = input$cs_genome,
-                                     annotation_subset = input$annotation_subset,
-                                     tssRegion = input$tss_region)
-
-    })
+                   rv$proplyr <- annotateRanges(rv$proplyr,
+                                                TxDb = input$cs_genome,
+                                                annotation_subset = input$annotation_subset,
+                                                tssRegion = input$tss_region)
+                   
+                 })
   }, ignoreInit = TRUE)
   
   ##### annotate with great
