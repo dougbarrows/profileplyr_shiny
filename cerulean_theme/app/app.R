@@ -333,7 +333,12 @@ server <- function(input, output, session) {
       signalFiles_text2 <- as.list(1:input$numSignalFiles_server)
       signalFiles_text2 <- lapply(signalFiles_text2, function(i)
       {
-        input[[paste0("UploadSignalFile", i)]]$datapath
+        current_SignalFile_path <- input[[paste0("UploadSignalFile", i)]]$datapath
+        current_SignalFile_name <- input[[paste0("UploadSignalFile", i)]]$name
+        new_SignalFile_path <- paste0(dirname(current_SignalFile_path), "/", current_SignalFile_name)
+        file.rename(from = current_SignalFile_path,
+                    to = new_SignalFile_path)
+        return(new_SignalFile_path)
       })
       unlist(signalFiles_text2)
     }
@@ -396,7 +401,12 @@ server <- function(input, output, session) {
       testRanges_text2 <- as.list(1:input$numBedFiles_server)
       testRanges_text2 <- lapply(testRanges_text2, function(i)
       {
-        input[[paste0("UploadBedFile", i)]]$datapath
+        current_BedFile_path <- input[[paste0("UploadBedFile", i)]]$datapath
+        current_BedFile_name <- input[[paste0("UploadBedFile", i)]]$name
+        new_BedFile_path <- paste0(dirname(current_BedFile_path), "/", current_BedFile_name)
+        file.rename(from = current_BedFile_path,
+                    to = new_BedFile_path)
+        return(new_BedFile_path)
       })
       unlist(testRanges_text2)
     }
@@ -1976,8 +1986,11 @@ server <- function(input, output, session) {
                  })
   })
   
-  pdf(NULL)
-  dev.off()
+
+      pdf(NULL)
+
+
+
   output$EnrichedHeatmap <- renderPlot({
     rv$heatmap
   })
