@@ -26,7 +26,7 @@ RUN wget --no-verbose https://download3.rstudio.org/ubuntu-14.04/x86_64/VERSION 
     gdebi -n ss-latest.deb && \
     rm -f version.txt ss-latest.deb && \
     . /etc/environment && \
-    R -e "install.packages(c('shiny', 'DT', 'shinydashboard', 'dplyr', 'shinythemes', 'shinyWidgets', 'shinyjs', 'devtools'), repos='http://cran.us.r-project.org/', dependencies = TRUE)" && \
+    R -e "install.packages(c('shiny', 'DT', 'shinydashboard', 'dplyr', 'shinythemes', 'shinyWidgets', 'shinyjs', 'shinyFiles', 'devtools'), repos='http://cran.us.r-project.org/', dependencies = TRUE)" && \
     R -e "install.packages('BiocManager')" && \
     R -e "BiocManager::install(version='devel')" && \
     R -e "BiocManager::install(c('rtracklayer', 'GenomicRanges', 'TxDb.Hsapiens.UCSC.hg38.knownGene', 'TxDb.Mmusculus.UCSC.mm9.knownGene', 'org.Mm.eg.db', 'GO.db'), dependencies = TRUE)" && \
