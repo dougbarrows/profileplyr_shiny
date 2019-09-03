@@ -127,11 +127,22 @@ ui <- fluidPage(theme = shinytheme("cerulean"),
                                                      step = 10)
                                       ),
                                       
+                                      # this will be the button to mke the object, but will only show up when all bigwig/bam files are downloaded
+                                      conditionalPanel(
+                                        condition = "input.input_local_vs_server == 'locally'",
+                                      uiOutput("generate_bam_bigwig_local"),
+                                      uiOutput("no_generate_button_local")),
                                       
-                                      actionButton(inputId = "go_bam_bigwig",
-                                                   label = "Generate profileplyr object", 
-                                                   icon("check"),
-                                                   class = "btn btn-primary"),
+                                      conditionalPanel(
+                                        condition = "input.input_local_vs_server == 'docker_server'",
+                                      uiOutput("generate_bam_bigwig_server"),
+                                      uiOutput("no_generate_button_server")),
+                                      
+                                    
+                                      # actionButton(inputId = "go_bam_bigwig",
+                                      #              label = "Generate profileplyr object",
+                                      #              icon("check"),
+                                      #              class = "btn btn-primary"),
                                       # option to download
                                       uiOutput("download_bam_bigwig_bed")),
                                     # 
@@ -262,6 +273,33 @@ server <- function(input, output, session) {
     
   })
   
+
+  # make the 'generate profileplyr' button conditional on whether files have actually been uploaded
+  output$generate_bam_bigwig_server <- renderUI({
+    req(input$numBedFiles_server)
+    for (i in seq_len(input$numBedFiles_server)){
+      if(is.null(input[[paste0("UploadBedFile", i)]])){
+        return()
+      }
+    }
+    for (i in seq_len(input$numSignalFiles_server)){
+      if(is.null(input[[paste0("UploadSignalFile", i)]])){
+        return()
+      }
+    }
+    actionButton(inputId = "go_bam_bigwig_server",
+                 label = "Generate profileplyr object",
+                 icon("check"),
+                 class = "btn btn-primary")
+  })
+  
+  # give a message that the button will appear once files are uploaded
+  output$no_generate_button_server <- renderText({
+    if(is.null(input$go_bam_bigwig_server)){
+      "<b> A button to generate the profileplyr object will appear once the signal files and bed files are uploaded <b>"
+    }
+  })
+  
   output$numSignalFiles_ui <- renderUI({
     numericInput(inputId = "numSignalFiles", 
                  label = paste0("How many ", input$format, " files would you like to use?"), 
@@ -385,6 +423,37 @@ server <- function(input, output, session) {
     
   })
   
+  # make the generate profileplyr button that depends on the paths being input for both bed files and signal files
+  output$generate_bam_bigwig_local <- renderUI({
+    req(input$numBedFiles)
+    for (i in seq_len(input$numSignalFiles)){
+      req(input[[paste0("GetSignalFile", i)]])
+      signalFiles_files <- selected_files_function(input_name = "GetSignalFile", x = i)
+      if (is.na(signalFiles_files)){
+        return()
+      }
+    }
+    for (i in seq_len(input$numBedFiles)){
+      req(input[[paste0("GetBedFile", i)]])
+      testRanges_files <- selected_files_function(input_name = "GetBedFile", x = i)
+      if (is.na(testRanges_files)){
+        return()
+      }
+    }
+
+    actionButton(inputId = "go_bam_bigwig_local",
+                 label = "Generate profileplyr object",
+                 icon("check"),
+                 class = "btn btn-primary")
+  })
+  
+  output$no_generate_button_local <- renderText({
+    if(is.null(input$go_bam_bigwig_local)){
+      "<b> A button to generate the profileplyr object will appear once the signal files and bed files are selected above <b>"
+    }
+  })
+  
+  renderText("A button to generate profileplyr object will appear once the signal files and bed files have been selected")
   #use the same function that we used to print the paths to the files to make a reactive value that contains a vector of paths
   testRanges_paths <- reactive({
     req(input$numBedFiles)
@@ -412,6 +481,7 @@ server <- function(input, output, session) {
     }
     
   }) 
+  
   
   output$labeled_image <- renderUI({
     if(is(rv$proplyr, "profileplyr")) {
@@ -1039,8 +1109,8 @@ server <- function(input, output, session) {
   
   rv$labeled_image <- 'labeled_figure_for_app.png'
   
-  # read in signal files and bed files to make profileplyr object from Bam/bigwig/bed
-  from_bam_bigwig_bed <- observeEvent(input$go_bam_bigwig, {
+  # read in signal files and bed files to make profileplyr object from Bam/bigwig/bed from the server based generate profileplyr button
+  observeEvent(input$go_bam_bigwig_server, {
     withProgress(message = 'Action in progress',
                  value = 0.5, {
                    
@@ -1065,6 +1135,31 @@ server <- function(input, output, session) {
                  })
   })
   
+  # read in signal files and bed files to make profileplyr object from Bam/bigwig/bed from the local based generate profileplyr button
+  observeEvent(input$go_bam_bigwig_local, {
+    withProgress(message = 'Action in progress',
+                 value = 0.5, {
+                   
+                   signalFiles <- signalFiles_paths()
+                   testRanges <- testRanges_paths()
+                   # signalFiles <- strsplit(input$signalFiles, split = ",") %>%
+                   #   unlist() %>%
+                   #   trimws()
+                   # testRanges <- strsplit(input$testRanges, split = ",") %>%
+                   #   unlist() %>%
+                   #   trimws()
+                   rv$proplyr <- rv$proplyr_original <- BamBigwig_to_chipProfile(signalFiles = signalFiles,
+                                                                                 testRanges = testRanges,
+                                                                                 format = input$format,
+                                                                                 style = input$soggi_style,
+                                                                                 nOfWindows = input$nOfWindows,
+                                                                                 bin_size = input$bin_size,
+                                                                                 distanceAround = input$distanceAround,
+                                                                                 distanceUp = input$distanceUp,
+                                                                                 distanceDown = input$distanceDown) %>%
+                     as_profileplyr()
+                 })
+  })
   
   # read in from deeptools
   from_deepTools <- observeEvent(input$deepTools_mat_upload, {
