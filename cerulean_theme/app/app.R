@@ -1987,7 +1987,7 @@ server <- function(input, output, session) {
   })
   
 
-      pdf(NULL)
+  pdf(NULL)
 
 
 
