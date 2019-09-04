@@ -20,7 +20,9 @@ By copying the Docker image, the proper versions of profileplyr, R, and the depe
 1.  Install Docker for [Mac](https://docs.docker.com/docker-for-mac/install/) or [Windows](https://docs.docker.com/docker-for-windows/install/)
 2.  Enter the following command into the terminal to get the image from Docker hub. This will pull the image if you don't already have it, and will run a container on your computer. If you have already pulled the image from Docker hub then this same line of code will be used to run the container.
 
-  $ docker run --rm -p  3838:3838 dougbarrows/my-shiny-app:latest
+    ```
+    $ docker run --rm -p  3838:3838 dougbarrows/my-shiny-app:latest
+    ```
   
 3.  Open an internet browser and go to 'http://localhost:3838' and the Shiny app should appear in the browser. You should notice that the R messages/warnings/errors appear in the terminal as the container is being run.  
 
